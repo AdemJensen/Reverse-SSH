@@ -6,6 +6,8 @@ Reverse SSH 是 macOS 和 Windows 上的 SSH 反向转发工具，**仅支持 TC
 
 [创建专用 SSH 转发用户](https://ademjensen.github.io/Reverse-SSH/ssh-tunnel-user.html) · [用 Caddy 为转发服务添加 HTTPS](https://ademjensen.github.io/Reverse-SSH/https.html)
 
+![Reverse SSH 的 macOS 主窗口，显示示例配置和转发路径](https://ademjensen.github.io/Reverse-SSH/assets/reverse-ssh-macos.png)
+
 ## 安装
 
 - **macOS 13 或更新版本**：解压 macOS 包，把 `Reverse SSH.app` 拖到「应用程序」，再打开。通用版同时包含 Apple 芯片和 Intel 版本。应用使用临时签名，未提交 Apple 公证。
@@ -19,7 +21,7 @@ Windows 启动诊断日志位于 `%AppData%\Reverse SSH\startup.log`。配置目
 
 ## 建立隧道
 
-窗口顶栏始终显示连接状态和「连接隧道」按钮。错误和连接事件可在「连接记录」标签页查看。「关于」标签页包含项目信息和 GitHub 仓库入口。
+窗口顶栏始终显示连接状态和「连接隧道」按钮。错误和连接事件可在「连接记录」标签页查看。「关于」标签页包含项目说明、官网和 GitHub 仓库入口。
 
 1. 确认本机服务已经运行。以端口 `3000` 的 HTTP 服务为例，将本机服务填为 `127.0.0.1:3000`。
 2. 填写 SSH 服务器地址、SSH 端口和用户名，选择认证方式。私钥路径支持 `~/.ssh/id_ed25519` 等简写，也可以从文件选择器浏览。

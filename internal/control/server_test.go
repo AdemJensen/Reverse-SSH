@@ -70,7 +70,7 @@ func TestLocalInterfaceAndLoginSettings(t *testing.T) {
 		}
 		return body
 	}
-	if page := request("GET", "", "", "", 200); !bytes.Contains(page, []byte("通过 SSH 将远端端口转发到本机服务")) {
+	if page := request("GET", "", "", "", 200); !bytes.Contains(page, []byte("用 SSH 把本机服务发布到公网")) {
 		t.Fatal("bundled UI did not render")
 	}
 	request("GET", "app.css", "", "", 200)

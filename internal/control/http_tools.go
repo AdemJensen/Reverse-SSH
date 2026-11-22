@@ -64,9 +64,12 @@ type openResult struct {
 	ViaSSH bool   `json:"viaSSH,omitempty"`
 }
 
-const projectRepositoryURL = "https://github.com/AdemJensen/Reverse-SSH"
+const (
+	projectRepositoryURL = "https://github.com/AdemJensen/Reverse-SSH"
+	projectWebsiteURL    = "https://ademjensen.github.io/Reverse-SSH/"
+)
 
-func (c *Controller) openProjectRepository(w http.ResponseWriter, r *http.Request) {
+func (c *Controller) openProjectLink(w http.ResponseWriter, r *http.Request, address string) {
 	if err := decode(r, &struct{}{}); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -75,7 +78,7 @@ func (c *Controller) openProjectRepository(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusNotImplemented, errors.New("当前系统无法打开默认浏览器。"))
 		return
 	}
-	if err := c.dialogs.OpenURL(projectRepositoryURL); err != nil {
+	if err := c.dialogs.OpenURL(address); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}

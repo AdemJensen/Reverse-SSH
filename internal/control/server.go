@@ -207,7 +207,10 @@ func (c *Controller) api(path string, w http.ResponseWriter, r *http.Request) {
 		c.openEndpoint(w, r)
 		return
 	case "POST api/about/github":
-		c.openProjectRepository(w, r)
+		c.openProjectLink(w, r, projectRepositoryURL)
+		return
+	case "POST api/about/website":
+		c.openProjectLink(w, r, projectWebsiteURL)
 		return
 	case "POST api/check":
 		c.checkEndpoints(w, r)

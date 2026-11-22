@@ -185,6 +185,7 @@ h2 { font-size: 15px; font-weight: 700; }
 .activity-list li[data-error="true"] { color: var(--danger); }
 .about { max-width: 590px; }
 .about-content { display: grid; justify-items: start; gap: 14px; padding: 18px 20px; color: var(--muted); }
+.about-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .about-content .about-copyright { color: var(--muted); font-size: 12px; }
 
 dialog { width: min(calc(100vw - 32px), 460px); max-height: calc(100vh - 32px); border: 1px solid var(--line); border-radius: 13px; background: #fff; color: var(--ink); padding: 0; box-shadow: 0 15px 55px #091d2344; }

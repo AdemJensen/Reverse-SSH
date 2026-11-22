@@ -101,20 +101,22 @@ function announce(target, message = '', error = false) {
   element.dataset.error = String(error);
 }
 
-const githubButton = byId('openGitHub');
-githubButton.addEventListener('click', async () => {
-  if (githubButton.disabled) return;
-  const restoreFocus = document.activeElement === githubButton;
-  githubButton.disabled = true;
-  announce('githubMessage');
+const aboutActions = byId('aboutActions');
+const aboutButtons = Array.from(aboutActions.querySelectorAll('[data-about-page]'));
+aboutActions.addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-about-page]');
+  if (!button || button.disabled) return;
+  const restoreFocus = document.activeElement === button;
+  for (const item of aboutButtons) item.disabled = true;
+  announce('aboutMessage');
   try {
-    await api('about/github', 'POST', {});
+    await api(`about/${button.dataset.aboutPage}`, 'POST', {});
   } catch (error) {
-    announce('githubMessage', error.message, true);
+    announce('aboutMessage', error.message, true);
   } finally {
-    githubButton.disabled = false;
+    for (const item of aboutButtons) item.disabled = false;
     if (restoreFocus && document.hasFocus() && document.activeElement === document.body) {
-      githubButton.focus({ preventScroll: true });
+      button.focus({ preventScroll: true });
     }
   }
 });

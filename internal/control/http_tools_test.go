@@ -14,41 +14,49 @@ import (
 	"time"
 )
 
-func TestAboutGitHubOpensFixedRepository(t *testing.T) {
-	var opened []string
-	var browserError error
-	c := &Controller{dialogs: Dialogs{OpenURL: func(address string) error {
-		opened = append(opened, address)
-		return browserError
-	}}}
-	request := func(method, body string, want int) string {
-		t.Helper()
-		r := httptest.NewRequest(method, "/api/about/github", strings.NewReader(body))
-		r.Header.Set("Content-Type", "application/json")
-		result := httptest.NewRecorder()
-		c.api("api/about/github", result, r)
-		if result.Code != want {
-			t.Fatalf("GitHub route returned %d, want %d: %s", result.Code, want, result.Body)
-		}
-		return result.Body.String()
-	}
+func TestAboutLinksOpenFixedAddresses(t *testing.T) {
+	for _, tt := range []struct{ name, address string }{
+		{"github", "https://github.com/AdemJensen/Reverse-SSH"},
+		{"website", "https://ademjensen.github.io/Reverse-SSH/"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			path := "api/about/" + tt.name
+			var opened []string
+			var browserError error
+			c := &Controller{dialogs: Dialogs{OpenURL: func(address string) error {
+				opened = append(opened, address)
+				return browserError
+			}}}
+			request := func(method, body string, want int) string {
+				t.Helper()
+				r := httptest.NewRequest(method, "/"+path, strings.NewReader(body))
+				r.Header.Set("Content-Type", "application/json")
+				result := httptest.NewRecorder()
+				c.api(path, result, r)
+				if result.Code != want {
+					t.Fatalf("%s returned %d, want %d: %s", method, result.Code, want, result.Body)
+				}
+				return result.Body.String()
+			}
 
-	request(http.MethodGet, "", http.StatusNotFound)
-	request(http.MethodPost, `{"url":"https://example.com"}`, http.StatusBadRequest)
-	if len(opened) != 0 {
-		t.Fatalf("rejected requests opened %v", opened)
-	}
-	request(http.MethodPost, "{}", http.StatusOK)
-	if len(opened) != 1 || opened[0] != "https://github.com/AdemJensen/Reverse-SSH" {
-		t.Fatalf("opened wrong repository: %v", opened)
-	}
+			request(http.MethodGet, "", http.StatusNotFound)
+			request(http.MethodPost, `{"url":"https://example.com"}`, http.StatusBadRequest)
+			if len(opened) != 0 {
+				t.Fatalf("rejected requests opened %v", opened)
+			}
+			request(http.MethodPost, "{}", http.StatusOK)
+			if len(opened) != 1 || opened[0] != tt.address {
+				t.Fatalf("opened %v, want %s", opened, tt.address)
+			}
 
-	browserError = errors.New("fixture browser failure")
-	if body := request(http.MethodPost, "{}", http.StatusInternalServerError); !strings.Contains(body, browserError.Error()) {
-		t.Fatalf("missing browser error: %s", body)
+			browserError = errors.New("fixture browser failure")
+			if body := request(http.MethodPost, "{}", http.StatusInternalServerError); !strings.Contains(body, browserError.Error()) {
+				t.Fatalf("missing browser error: %s", body)
+			}
+			c.dialogs.OpenURL = nil
+			request(http.MethodPost, "{}", http.StatusNotImplemented)
+		})
 	}
-	c.dialogs.OpenURL = nil
-	request(http.MethodPost, "{}", http.StatusNotImplemented)
 }
 
 func TestHTTPTestServiceAndQuickOpen(t *testing.T) {

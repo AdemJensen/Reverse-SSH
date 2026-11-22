@@ -15,7 +15,7 @@
       <div class="shell topbar-inner">
         <div class="brand">
           <span class="app-icon" aria-hidden="true"><i></i><i></i></span>
-          <div><h1>Reverse SSH</h1><p>通过 SSH 将远端端口转发到本机服务。</p></div>
+          <div><h1>Reverse SSH</h1><p>用 SSH 把本机服务发布到公网</p></div>
         </div>
         <div class="topbar-actions">
           <div class="status-badge" id="statusBadge" data-state="idle"><span class="status-dot" aria-hidden="true"></span><span id="statusLabel" role="status">未连接</span></div>
@@ -115,9 +115,13 @@
     <section class="panel about tab-panel" id="aboutPanel" role="tabpanel" aria-labelledby="aboutTab" tabindex="0" hidden>
       <div class="panel-head"><h2>关于 Reverse SSH</h2></div>
       <div class="about-content">
-        <p>Reverse SSH 是一款桌面 SSH 反向转发工具。它用一条 SSH 隧道将多个远端端口转发到本机服务，并支持后台运行。</p>
-        <button class="button button-secondary" id="openGitHub" type="button" aria-label="在默认浏览器打开 GitHub 项目">GitHub</button>
-        <p class="form-message" id="githubMessage" role="status" hidden></p>
+        <p>Reverse SSH 是一款面向 macOS 和 Windows 的图形化 SSH 反向 TCP 转发工具。借助一台允许远程 TCP 转发的公网 SSH 服务器，本机没有公网 IP 也可以对外提供服务。</p>
+        <p>一条 SSH 连接可转发多个端口。应用支持后台运行，也可在登录系统时自动启动并连接已保存的隧道。</p>
+        <div class="about-actions" id="aboutActions">
+          <button class="button button-primary" id="openWebsite" type="button" data-about-page="website" aria-label="访问官网，在默认浏览器打开">访问官网</button>
+          <button class="button button-secondary" id="openGitHub" type="button" data-about-page="github" aria-label="在默认浏览器打开 GitHub 项目">GitHub</button>
+        </div>
+        <p class="form-message" id="aboutMessage" role="status" hidden></p>
         <p class="about-copyright">© 2026 Reverse SSH</p>
       </div>
     </section>
