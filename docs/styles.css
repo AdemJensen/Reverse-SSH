@@ -38,6 +38,7 @@ code { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-si
 .hero-inner { display: grid; grid-template-columns: minmax(18rem, .76fr) minmax(0, 1.38fr); align-items: center; gap: clamp(1.5rem, 5vw, 4rem); padding-block: clamp(3.25rem, 5.5vw, 5rem); }
 .eyebrow { margin-bottom: .8rem; color: var(--green); font-size: .9rem; font-weight: 740; letter-spacing: .045em; }
 h1 { font-size: clamp(2.5rem, 4.5vw, 4.1rem); font-weight: 780; line-height: 1.17; letter-spacing: -.04em; }
+.hero-copy h1 { font-size: clamp(2rem, 3.2vw, 3rem); }
 .hero-description { max-width: 24rem; margin-top: 1.2rem; color: var(--muted); font-size: clamp(1rem, 1.48vw, 1.15rem); line-height: 1.72; }
 .hero-actions { display: flex; align-items: center; gap: .95rem; flex-wrap: wrap; margin-top: 1.75rem; }
 .button { display: inline-flex; align-items: center; justify-content: center; min-height: 2.625rem; padding: .55rem .95rem; border-radius: .55rem; font-weight: 680; text-decoration: none; line-height: 1.35; }
