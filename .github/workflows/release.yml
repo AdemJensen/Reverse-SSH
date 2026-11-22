@@ -5,6 +5,15 @@ on:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing version tag to publish. Leave blank to build only.'
+        required: false
+        type: string
+      draft_id:
+        description: 'Optional ID of an existing draft for that tag.'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -14,20 +23,36 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || (github.event.created && !github.event.deleted)
     runs-on: ubuntu-24.04
     outputs:
+      tag: ${{ steps.metadata.outputs.tag }}
       version: ${{ steps.metadata.outputs.version }}
       build_number: ${{ steps.metadata.outputs.build_number }}
       commit: ${{ steps.metadata.outputs.commit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || '' }}
           persist-credentials: false
       - name: Validate release metadata
         id: metadata
         shell: bash
+        env:
+          RETRY_TAG: ${{ inputs.release_tag }}
+          DRAFT_ID: ${{ inputs.draft_id }}
         run: |
+          tag="$RETRY_TAG"
           if [[ "$GITHUB_EVENT_NAME" == push ]]; then
-            [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" == v* ]]
-            version="${GITHUB_REF_NAME#v}"
+            tag="$GITHUB_REF_NAME"
+          fi
+          if [[ -n "$DRAFT_ID" && -z "$tag" ]]; then
+            printf 'A draft ID requires an existing version tag.\n' >&2
+            exit 1
+          fi
+          if [[ -n "$tag" ]]; then
+            if [[ "$tag" != v* ]]; then
+              printf 'Expected a version tag such as v1.5.2.\n' >&2
+              exit 1
+            fi
+            version="${tag#v}"
           else
             version=$(python3 -c 'import plistlib; print(plistlib.load(open("scripts/Info.plist", "rb"))["CFBundleShortVersionString"])')
           fi
@@ -35,8 +60,8 @@ jobs:
             printf 'Expected a stable version such as 1.5.2.\n' >&2
             exit 1
           fi
-          printf 'version=%s\nbuild_number=%s\ncommit=%s\n' \
-            "$version" "$((1000 + GITHUB_RUN_NUMBER))" "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\nversion=%s\nbuild_number=%s\ncommit=%s\n' \
+            "$tag" "$version" "$((1000 + GITHUB_RUN_NUMBER))" "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   build:
     needs: metadata
@@ -83,7 +108,7 @@ jobs:
           overwrite: true
 
   publish:
-    if: github.event_name == 'push' && github.ref_type == 'tag'
+    if: needs.metadata.outputs.tag != ''
     needs: [metadata, build]
     runs-on: ubuntu-24.04
     concurrency:
@@ -94,7 +119,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.metadata.outputs.commit }}
+          # A manual retry builds the tagged code and uses the selected workflow's publisher.
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -102,7 +128,15 @@ jobs:
           path: ${{ runner.temp }}/release
           merge-multiple: true
       - name: Publish verified release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
           SOURCE_COMMIT: ${{ needs.metadata.outputs.commit }}
-        run: python3 scripts/publish-release.py "$GITHUB_REF_NAME" "$SOURCE_COMMIT" "$RUNNER_TEMP/release"
+          DRAFT_ID: ${{ inputs.draft_id }}
+        run: |
+          args=("$RELEASE_TAG" "$SOURCE_COMMIT" "$RUNNER_TEMP/release")
+          if [[ -n "$DRAFT_ID" ]]; then
+            args+=(--draft-id "$DRAFT_ID")
+          fi
+          python3 scripts/publish-release.py "${args[@]}"

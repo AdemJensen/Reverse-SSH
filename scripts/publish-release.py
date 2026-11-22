@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from urllib.parse import urlencode
 from zipfile import ZipFile
 
 
@@ -33,9 +34,64 @@ def github_json(*args):
     return json.loads(gh("api", *args))
 
 
+def positive_id(value):
+    if type(value) is not int or value <= 0:
+        raise ValueError("Expected a positive numeric GitHub release or asset ID")
+    return value
+
+
 def list_releases(repository):
     pages = github_json("--paginate", "--slurp", f"repos/{repository}/releases?per_page=100")
     return [release for page in pages for release in page]
+
+
+def checked_release(release, tag, release_id):
+    if positive_id(release["id"]) != release_id or release["tag_name"] != tag:
+        raise ValueError(f"Release {release_id} is not associated with {tag}")
+    return release
+
+
+def load_release(repository, tag, release_id):
+    release = github_json(f"repos/{repository}/releases/{release_id}")
+    return checked_release(release, tag, release_id)
+
+
+def find_release(repository, tag):
+    releases = [release for release in list_releases(repository) if release["tag_name"] == tag]
+    published = [release for release in releases if not release["draft"]]
+    matches = published or releases
+    if len(matches) > 1:
+        raise ValueError(f"Multiple releases match {tag}; specify the draft ID for recovery")
+    if matches:
+        return load_release(repository, tag, positive_id(matches[0]["id"]))
+
+    # GitHub's release list may not expose a draft, even though its tag lookup can find it.
+    try:
+        result = json.loads(gh("release", "view", tag, "--repo", repository, "--json", "databaseId,tagName"))
+    except subprocess.CalledProcessError:
+        return None
+    if result["tagName"] != tag:
+        raise ValueError(f"GitHub returned a release for a different tag while looking up {tag}")
+    return load_release(repository, tag, positive_id(result["databaseId"]))
+
+
+def create_draft(repository, tag, commit):
+    try:
+        release = github_json("--method", "POST", f"repos/{repository}/releases",
+                              "-f", f"tag_name={tag}", "-f", f"name=Reverse SSH {tag}",
+                              "-f", f"target_commitish={commit}", "-F", "draft=true",
+                              "-F", "generate_release_notes=true")
+    except subprocess.CalledProcessError:
+        # A concurrent request or a lost response can leave a valid release behind.
+        existing = find_release(repository, tag)
+        if existing is None:
+            raise
+        return existing
+    release_id = positive_id(release["id"])
+    checked_release(release, tag, release_id)
+    if not release["draft"]:
+        raise ValueError(f"GitHub did not create a draft for {tag}")
+    return release
 
 
 def verify_tag(repository, tag, expected_commit):
@@ -70,43 +126,76 @@ def verify_assets(release, expected, verify_contents):
             raise ValueError(f"Release asset {name} differs from the verified ZIP")
 
 
+def upload_asset(repository, tag, release, path, expected):
+    release_id = release["id"]
+    asset_url = f"https://uploads.github.com/repos/{repository}/releases/{release_id}/assets"
+    name = path.name
+    size, digest = expected
+    for attempt in range(2):
+        if not release["draft"]:
+            raise ValueError(f"Release {tag} became public during asset upload")
+        assets = [asset for asset in release["assets"] if asset["name"] == name]
+        if len(assets) > 1:
+            raise ValueError(f"Multiple draft assets are named {name}")
+        if assets:
+            asset = assets[0]
+            if asset["state"] == "uploaded" and asset["size"] == size and asset.get("digest") == digest:
+                return release
+            gh("api", "--method", "DELETE", f"repos/{repository}/releases/assets/{positive_id(asset['id'])}")
+        try:
+            github_json("--method", "POST", "--input", str(path), "--header", "Content-Type: application/zip",
+                        f"{asset_url}?{urlencode({'name': name})}")
+        except subprocess.CalledProcessError:
+            if attempt == 1:
+                raise
+            # Failed uploads can leave an empty starter asset with the same name.
+            release = load_release(repository, tag, release_id)
+        else:
+            release = load_release(repository, tag, release_id)
+            verify_assets(release, {name: expected}, verify_contents=True)
+            return release
+
+
 def should_make_latest(releases, version):
     published = (release for release in releases if not release["draft"] and not release["prerelease"])
     versions = (version_tuple(release["tag_name"]) for release in published)
     return not any(other is not None and other > version for other in versions)
 
 
-def publish(repository, tag, commit, directory):
+def publish(repository, tag, commit, directory, draft_id=None):
     version = version_tuple(tag)
     if version is None or not re.fullmatch(r"[a-f0-9]{40}", commit):
         raise ValueError("Expected a stable vX.Y.Z tag and its source commit")
     expected = validate_archives(directory)
     verify_tag(repository, tag, commit)
-    releases = list_releases(repository)
-    release = next((item for item in releases if item["tag_name"] == tag), None)
-    if release is not None and not release["draft"]:
+    if draft_id is None:
+        release = find_release(repository, tag)
+    else:
+        release = load_release(repository, tag, positive_id(draft_id))
+        if not release["draft"]:
+            raise ValueError(f"Release {draft_id} for {tag} is already public")
+    if release is None:
+        release = create_draft(repository, tag, commit)
+    if not release["draft"]:
         verify_assets(release, expected, verify_contents=False)
         print(f"Release {tag} is already published with all three assets")
         return
 
-    repo_flag = ("--repo", repository)
-    if release is None:
-        print(gh("release", "create", tag, "--draft", "--verify-tag", "--title", f"Reverse SSH {tag}",
-                 "--generate-notes", *repo_flag).strip())
-
-    # A failed job can leave a draft. Only a draft's release assets are replaced.
-    release = next((item for item in list_releases(repository) if item["tag_name"] == tag), None)
-    if release is None or not release["draft"]:
-        raise ValueError(f"Expected a draft release for {tag}")
-    asset_paths = [str((directory / name).resolve()) for name in ASSETS]
-    gh("release", "upload", tag, *asset_paths, "--clobber", *repo_flag)
-    release = github_json(f"repos/{repository}/releases/{release['id']}")
+    release_id = release["id"]
+    for name, metadata in expected.items():
+        release = upload_asset(repository, tag, release, directory / name, metadata)
     verify_assets(release, expected, verify_contents=True)
     if release["draft"]:
         verify_tag(repository, tag, commit)
         latest = should_make_latest(list_releases(repository), version)
-        print(gh("release", "edit", tag, "--draft=false", "--prerelease=false",
-                 f"--latest={str(latest).lower()}", *repo_flag).strip())
+        release = github_json("--method", "PATCH", f"repos/{repository}/releases/{release_id}",
+                              "-F", "draft=false", "-F", "prerelease=false",
+                              "-f", f"make_latest={str(latest).lower()}")
+        checked_release(release, tag, release_id)
+        if release["draft"] or release["prerelease"]:
+            raise ValueError(f"GitHub did not publish the stable release for {tag}")
+        verify_assets(release, expected, verify_contents=True)
+    print(release["html_url"])
 
 
 def main():
@@ -114,9 +203,11 @@ def main():
     parser.add_argument("tag")
     parser.add_argument("commit")
     parser.add_argument("directory", type=Path)
+    parser.add_argument("--draft-id", type=int, help="resume a specific GitHub draft release")
     arguments = parser.parse_args()
     try:
-        publish(os.environ["GITHUB_REPOSITORY"], arguments.tag, arguments.commit, arguments.directory)
+        publish(os.environ["GITHUB_REPOSITORY"], arguments.tag, arguments.commit, arguments.directory,
+                arguments.draft_id)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         sys.exit(str(error))
 

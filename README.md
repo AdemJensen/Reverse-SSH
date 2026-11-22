@@ -93,4 +93,6 @@ git tag -a v1.5.2 -m "Reverse SSH v1.5.2"
 git push origin v1.5.2
 ```
 
-GitHub Actions 的 [Build and release](https://github.com/AdemJensen/Reverse-SSH/actions/workflows/release.yml) 会构建 macOS 通用版、Windows x64 和 Windows ARM64，并在三个 ZIP 全部通过检查后发布到 Releases。Pages 通过固定文件名下载 GitHub 标记的最新正式版，无需为每个版本更新网页。只想验证打包时，可在 Actions 里手动运行该工作流，ZIP 将作为本次运行的产物提供。
+GitHub Actions 的 [Build and release](https://github.com/AdemJensen/Reverse-SSH/actions/workflows/release.yml) 会构建 macOS 通用版、Windows x64 和 Windows ARM64，并在三个 ZIP 全部通过检查后发布到 Releases。Pages 通过固定文件名下载 GitHub 标记的最新正式版，无需为每个版本更新网页。
+
+在 Actions 从 `main` 手动运行该工作流时，留空 `release_tag` 只生成 ZIP 供验证。填写已存在的版本标签可重新构建并发布该标签对应的提交。
