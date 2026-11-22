@@ -1,6 +1,6 @@
 # Reverse SSH · SSH 反向隧道
 
-Reverse SSH 为 SSH 反向 TCP 转发提供 macOS 和 Windows 桌面界面。用一台有公网地址、允许 SSH 远程转发的服务器，即可为本机服务提供访问入口。应用支持多端口、登录后自动启动和连接，以及断线重连。
+Reverse SSH 是 macOS 和 Windows 上的 SSH 反向转发工具，**仅支持 TCP 端口转发**。用一台有公网地址、允许 SSH 远程转发的服务器，即可为本机服务提供访问入口。应用支持多端口、登录后自动启动和连接，以及断线重连。
 
 [项目主页](https://ademjensen.github.io/Reverse-SSH/) · [下载最新版](https://github.com/AdemJensen/Reverse-SSH/releases/latest)
 
