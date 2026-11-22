@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Reverse SSH</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="app.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="topbar">
+      <div class="shell topbar-inner">
+        <div class="brand">
+          <span class="app-icon" aria-hidden="true"><i></i><i></i></span>
+          <div><h1>Reverse SSH</h1><p>通过 SSH 将远端端口转发到本机服务。</p></div>
+        </div>
+        <div class="topbar-actions">
+          <div class="status-badge" id="statusBadge" data-state="idle"><span class="status-dot" aria-hidden="true"></span><span id="statusLabel" role="status">未连接</span></div>
+          <button class="button button-primary" id="connectButton" type="submit" form="profileForm" disabled><span class="connect-icon" aria-hidden="true"></span><span id="connectText">连接隧道</span></button>
+        </div>
+      </div>
+    </div>
+    <div class="tabbar">
+      <div class="shell tabs" id="appTabs" role="tablist" aria-label="应用页面">
+        <button class="tab" id="configTab" type="button" role="tab" aria-selected="true" aria-controls="configPanel">配置</button>
+        <button class="tab" id="logsTab" type="button" role="tab" aria-selected="false" aria-controls="logsPanel" tabindex="-1">连接记录</button>
+        <button class="tab" id="aboutTab" type="button" role="tab" aria-selected="false" aria-controls="aboutPanel" tabindex="-1">关于</button>
+      </div>
+    </div>
+  </header>
+  <main class="shell main">
+    <section class="layout tab-panel" id="configPanel" role="tabpanel" aria-labelledby="configTab" tabindex="0">
+      <form class="panel config" id="profileForm" autocomplete="off">
+        <div class="panel-head">
+          <h2>连接配置</h2>
+          <div class="config-actions">
+            <button class="button button-secondary" id="importCommandButton" type="button" disabled>导入 SSH 命令</button>
+            <button class="button button-secondary" id="importButton" type="button" aria-label="导入 JSON 配置" disabled>导入 JSON</button>
+            <button class="button button-secondary" id="exportButton" type="button" aria-label="导出 JSON 配置" disabled>导出 JSON</button>
+            <button class="button button-quiet" id="saveButton" type="button" disabled>保存配置</button>
+          </div>
+          <p class="form-message config-message" id="configMessage" role="status" hidden></p>
+          <p class="form-message config-message" id="formMessage" role="status" hidden></p>
+        </div>
+        <fieldset class="section" id="serverSection" disabled>
+          <legend>SSH 服务器</legend>
+          <div class="fields address-fields">
+            <label>主机地址<input name="host" type="text" placeholder="example.com" spellcheck="false" autocapitalize="off" required></label>
+            <label>SSH 端口<input name="sshPort" type="number" min="1" max="65535" value="22" required></label>
+          </div>
+          <div class="fields equal-fields">
+            <label>用户名<input name="user" type="text" placeholder="deploy" spellcheck="false" autocapitalize="off" required></label>
+            <label>认证方式<select name="auth"><option value="key">私钥文件</option><option value="password">密码</option><option value="agent">SSH Agent</option></select></label>
+          </div>
+          <div class="fields equal-fields" id="keyFields">
+            <div><label for="keyPath">私钥路径</label><div class="input-group"><input id="keyPath" name="keyPath" type="text" placeholder="~/.ssh/id_ed25519" spellcheck="false" autocapitalize="off"><button class="button button-secondary" id="pickKey" type="button" title="选择私钥文件">浏览</button></div></div>
+            <label>私钥口令 <small>可选</small><input name="passphrase" type="password" autocomplete="off"></label>
+          </div>
+          <div class="fields equal-fields" id="passwordFields" hidden>
+            <label>SSH 密码<input name="password" type="password" autocomplete="off" aria-describedby="passwordStorageStatus"></label>
+            <div class="password-storage">
+              <label class="password-consent"><input id="rememberPassword" name="rememberPassword" type="checkbox" aria-describedby="passwordStorageHelp">保存密码（加密）</label>
+              <p id="passwordStorageHelp">密码以 AES 加密保存在本机，密钥固定内置于应用。</p>
+              <p id="passwordStorageStatus" role="status" hidden></p>
+            </div>
+          </div>
+        </fieldset>
+        <fieldset class="section forward-section" id="forwardSection">
+          <legend>端口转发</legend>
+          <div class="forward-actions">
+            <p class="input-note" id="bindHint">远端使用 127.0.0.1 时，只有服务器自身可访问该端口。</p>
+            <button class="button button-quiet" id="addForward" type="button" aria-describedby="forwardLimit" disabled><span class="plus-icon" aria-hidden="true">+</span>添加端口</button>
+          </div>
+          <p class="input-note forward-limit" id="forwardLimit" hidden>已达到 64 条转发上限。</p>
+          <div class="forward-list" id="forwardList"></div>
+        </fieldset>
+      </form>
+      <aside class="side">
+        <section class="panel route-panel" aria-labelledby="routeTitle">
+          <div class="panel-head"><h2 id="routeTitle">转发路径</h2><span class="route-count" id="routeCount"></span></div>
+          <ol class="route-list" id="routeList" aria-labelledby="routeTitle"></ol>
+          <section class="detached-test-panel" id="detachedTestPanel" aria-labelledby="detachedTestTitle" hidden>
+            <h3 id="detachedTestTitle">其他测试服务</h3>
+            <ul class="detached-tests" id="detachedTests" aria-labelledby="detachedTestTitle"></ul>
+          </section>
+          <div class="route-footer"><span id="statusMessage" role="status">连接后可从远端访问本地服务。</span></div>
+        </section>
+        <section class="panel settings" aria-labelledby="settingsTitle">
+          <div class="panel-head"><h2 id="settingsTitle">运行设置</h2></div>
+          <div class="setting-row">
+            <div><label for="autoStart">开机启动</label><p id="startNote">登录系统后在后台启动</p></div>
+            <input class="switch" type="checkbox" role="switch" id="autoStart" aria-describedby="startNote" disabled>
+          </div>
+          <div class="setting-row" id="autoConnectRow">
+            <div><label for="autoConnect">登录后自动连接</label><p id="autoConnectNote">在后台连接已保存的端口</p></div>
+            <input class="switch" form="profileForm" name="autoConnect" type="checkbox" role="switch" id="autoConnect" aria-describedby="autoConnectNote" disabled>
+          </div>
+          <div class="setting-row" id="reconnectRow">
+            <div><label for="reconnect">自动重连</label><p id="reconnectNote">连接意外中断时重试</p></div>
+            <input class="switch" form="profileForm" name="reconnect" type="checkbox" role="switch" id="reconnect" aria-describedby="reconnectNote" checked disabled>
+          </div>
+          <p class="background-note" id="backgroundNote">关闭窗口后隧道继续运行。</p>
+          <p class="settings-message" id="settingsMessage" role="status" hidden></p>
+        </section>
+      </aside>
+    </section>
+    <section class="panel activity tab-panel" id="logsPanel" role="tabpanel" aria-labelledby="logsTab" tabindex="0" hidden>
+      <div class="panel-head"><h2>连接记录</h2></div>
+      <p class="activity-empty" id="activityEmpty">暂无连接记录</p>
+      <ol class="activity-list" id="activityList" aria-label="连接事件" hidden></ol>
+    </section>
+    <section class="panel about tab-panel" id="aboutPanel" role="tabpanel" aria-labelledby="aboutTab" tabindex="0" hidden>
+      <div class="panel-head"><h2>关于 Reverse SSH</h2></div>
+      <div class="about-content">
+        <p>Reverse SSH 是一款桌面 SSH 反向转发工具。它用一条 SSH 隧道将多个远端端口转发到本机服务，并支持后台运行。</p>
+        <button class="button button-secondary" id="openGitHub" type="button" aria-label="在默认浏览器打开 GitHub 项目">GitHub</button>
+        <p class="form-message" id="githubMessage" role="status" hidden></p>
+        <p class="about-copyright">© 2026 Reverse SSH</p>
+      </div>
+    </section>
+  </main>
+  <template id="forwardTemplate">
+    <div class="forward-entry" data-forward role="group">
+      <div class="forward-entry-head">
+        <span class="forward-name"></span>
+        <button class="button button-remove" type="button" data-remove-forward>移除</button>
+      </div>
+      <div class="fields forward-endpoint-fields">
+        <label>远端监听地址<input data-forward-field="remoteBind" type="text" spellcheck="false" autocapitalize="off" aria-describedby="bindHint" required></label>
+        <div class="forward-port">
+          <label>远端端口<input data-forward-field="remotePort" type="number" min="1" max="65535" required></label>
+          <button class="button button-secondary forward-check-button" type="button" data-check-action disabled>检测连接</button>
+        </div>
+      </div>
+      <div class="fields forward-endpoint-fields">
+        <label>本地服务地址<input data-forward-field="localHost" type="text" spellcheck="false" autocapitalize="off" required></label>
+        <div class="forward-port forward-local-port">
+          <label>本地端口<input data-forward-field="localPort" type="number" min="1" max="65535" required></label>
+          <button class="button button-quiet route-test-button" type="button" data-test-action disabled>启动 HTTP 测试</button>
+        </div>
+      </div>
+      <p class="test-status" data-test-status role="status" hidden></p>
+      <p class="route-feedback" data-test-feedback role="status" hidden></p>
+      <p class="route-feedback" data-check-feedback role="status" hidden></p>
+      <dl class="check-results" data-check-results role="status" aria-label="HTTP 连接检测结果" hidden>
+        <div class="check-result" data-check-side="local">
+          <dt>本地</dt>
+          <dd><span class="check-value" data-check-value></span><span class="check-latency" data-check-latency hidden></span></dd>
+        </div>
+        <div class="check-result" data-check-side="remote">
+          <dt>远端</dt>
+          <dd><span class="check-value" data-check-value></span><span class="check-latency" data-check-latency hidden></span><span class="check-path" data-check-via hidden>经 SSH</span></dd>
+        </div>
+      </dl>
+    </div>
+  </template>
+  <template id="routeTemplate">
+    <li class="route" data-route>
+      <div class="route-endpoint">
+        <div class="node-icon remote-icon" aria-hidden="true"><i></i><i></i></div>
+        <div class="node-copy"><h3>远端监听</h3><p class="endpoint" data-remote-endpoint></p></div>
+        <button class="button button-secondary route-open" type="button" data-route-action="remote" title="在浏览器打开远端 HTTP 地址">打开<span aria-hidden="true">↗</span></button>
+      </div>
+      <div class="route-link" aria-hidden="true"></div>
+      <div class="route-endpoint">
+        <div class="node-icon local-icon" aria-hidden="true"><i></i></div>
+        <div class="node-copy"><h3>本地服务</h3><p class="endpoint" data-local-endpoint></p></div>
+        <button class="button button-secondary route-open" type="button" data-route-action="local" title="在浏览器打开本地 HTTP 地址">打开<span aria-hidden="true">↗</span></button>
+      </div>
+      <p class="route-feedback" data-route-feedback role="status" hidden></p>
+    </li>
+  </template>
+  <template id="detachedTestTemplate">
+    <li class="detached-test">
+      <p class="endpoint" data-local-endpoint></p>
+      <button class="button button-secondary route-test-button" type="button" data-test-action>停止 HTTP 测试</button>
+      <p class="route-feedback" data-test-feedback role="status" hidden></p>
+    </li>
+  </template>
+  <dialog id="importDialog" aria-labelledby="importTitle">
+    <div class="dialog-content">
+      <h2 id="importTitle">导入配置</h2>
+      <p>导入配置会覆盖尚未保存的修改。</p>
+      <div class="dialog-actions">
+        <button class="button button-secondary" id="cancelImport" type="button" autofocus>取消</button>
+        <button class="button button-primary" id="confirmImport" type="button">选择配置文件</button>
+      </div>
+    </div>
+  </dialog>
+  <dialog id="commandDialog" aria-labelledby="commandTitle" aria-describedby="commandHelp">
+    <form class="dialog-content command-form" id="commandForm" autocomplete="off">
+      <h2 id="commandTitle">导入 SSH 命令</h2>
+      <p id="commandHelp">粘贴带有 <code>-R</code> 的 SSH 命令，将其中的服务器和转发参数填入配置草稿。</p>
+      <label for="sshCommand">SSH 命令</label>
+      <textarea id="sshCommand" name="command" rows="5" placeholder="ssh -N -R 8080:127.0.0.1:3000 deploy@example.com" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" required autofocus></textarea>
+      <p class="form-message" id="commandError" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button class="button button-secondary" id="cancelCommand" type="button">取消</button>
+        <button class="button button-primary" id="applyCommand" type="submit">解析并填入</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="trustDialog" aria-labelledby="trustTitle">
+    <div class="dialog-content">
+      <h2 id="trustTitle">验证 SSH 主机</h2>
+      <p>首次连接此主机。请通过可信渠道核对下方指纹。</p>
+      <dl class="fingerprint">
+        <div><dt>主机</dt><dd id="trustHost"></dd></div>
+        <div id="trustAlgorithmRow"><dt>算法</dt><dd id="trustAlgorithm"></dd></div>
+        <div><dt>指纹</dt><dd id="trustFingerprint"></dd></div>
+      </dl>
+      <p class="form-message" id="trustError" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button class="button button-secondary" id="rejectTrust" type="button" autofocus>取消连接</button>
+        <button class="button button-primary" id="acceptTrust" type="button">信任并连接</button>
+      </div>
+    </div>
+  </dialog>
+</body>
+</html>

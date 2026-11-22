@@ -1,0 +1,10 @@
+.DS_Store
+/.qa-wk/
+/release/
+/dist/
+*.exe
+*.app/
+profile.json
+known_hosts
+*.log
+__pycache__/
