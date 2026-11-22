@@ -2,6 +2,8 @@
 set -eu
 
 out="${1:-./release}"
+version="${2:-}"
+build_number="${3:-}"
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
 cd "$(dirname "$0")/.."
@@ -18,6 +20,12 @@ done
 
 lipo -create "$staging/ReverseSSH-arm64" "$staging/ReverseSSH-amd64" -output "$app/Contents/MacOS/ReverseSSH"
 cp scripts/Info.plist "$app/Contents/Info.plist"
+if [ -n "$version" ]; then
+  plutil -replace CFBundleShortVersionString -string "$version" "$app/Contents/Info.plist"
+fi
+if [ -n "$build_number" ]; then
+  plutil -replace CFBundleVersion -string "$build_number" "$app/Contents/Info.plist"
+fi
 swift -module-cache-path "$staging/swift-modules" scripts/icon.swift "$app/Contents/Resources/AppIcon.icns"
 codesign --force --sign - "$app"
 codesign --verify --strict "$app"

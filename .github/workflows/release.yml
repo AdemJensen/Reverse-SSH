@@ -1,0 +1,108 @@
+name: Build and release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    if: github.event_name == 'workflow_dispatch' || (github.event.created && !github.event.deleted)
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      build_number: ${{ steps.metadata.outputs.build_number }}
+      commit: ${{ steps.metadata.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate release metadata
+        id: metadata
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" == v* ]]
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version=$(python3 -c 'import plistlib; print(plistlib.load(open("scripts/Info.plist", "rb"))["CFBundleShortVersionString"])')
+          fi
+          if ! [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            printf 'Expected a stable version such as 1.5.2.\n' >&2
+            exit 1
+          fi
+          printf 'version=%s\nbuild_number=%s\ncommit=%s\n' \
+            "$version" "$((1000 + GITHUB_RUN_NUMBER))" "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: metadata
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            runner: macos-15
+            asset: ReverseSSH-macOS-Universal.zip
+          - platform: windows-x64
+            runner: ubuntu-24.04
+            asset: ReverseSSH-Windows-x64.zip
+          - platform: windows-arm64
+            runner: ubuntu-24.04
+            asset: ReverseSSH-Windows-ARM64.zip
+    env:
+      GOFLAGS: -mod=readonly
+      VERSION: ${{ needs.metadata.outputs.version }}
+      BUILD_NUMBER: ${{ needs.metadata.outputs.build_number }}
+      PLATFORM: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.metadata.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.4'
+          cache-dependency-path: go.sum
+      - name: Test on macOS
+        if: matrix.platform == 'macos'
+        run: go test -race ./...
+      - name: Build portable ZIP
+        run: sh scripts/build-release.sh "$PLATFORM" "$VERSION" "$BUILD_NUMBER" "$RUNNER_TEMP/release"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ matrix.platform }}
+          path: ${{ runner.temp }}/release/${{ matrix.asset }}
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+
+  publish:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [metadata, build]
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: reverse-ssh-release-publication
+      queue: max
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.metadata.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: ${{ runner.temp }}/release
+          merge-multiple: true
+      - name: Publish verified release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ needs.metadata.outputs.commit }}
+        run: python3 scripts/publish-release.py "$GITHUB_REF_NAME" "$SOURCE_COMMIT" "$RUNNER_TEMP/release"
