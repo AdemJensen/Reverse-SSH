@@ -1,8 +1,10 @@
 # Reverse SSH · SSH 反向隧道
 
-通过一条 SSH 连接同时将多个远端 TCP 端口转发到本机服务。软件保存一份连接配置，支持私钥、密码与 OpenSSH Agent。连接意外中断时，可自动重连。
+Reverse SSH 为 SSH 反向 TCP 转发提供 macOS 和 Windows 桌面界面。用一台有公网地址、允许 SSH 远程转发的服务器，即可为本机服务提供访问入口。应用支持多端口、登录后自动启动和连接，以及断线重连。
 
 [项目主页](https://ademjensen.github.io/Reverse-SSH/) · [下载最新版](https://github.com/AdemJensen/Reverse-SSH/releases/latest)
+
+[创建专用 SSH 转发用户](https://ademjensen.github.io/Reverse-SSH/ssh-tunnel-user.html) · [用 Caddy 为转发服务添加 HTTPS](https://ademjensen.github.io/Reverse-SSH/https.html)
 
 ## 安装
 
@@ -79,3 +81,14 @@ go test -race ./...
 ```
 
 Windows 构建会自动嵌入源码目录中的图标资源。若修改图标源文件，可安装 `llvm-rc` 和 `llvm-cvtres` 后运行 `python3 scripts/build_windows_icon.py` 重新生成资源。
+
+## 发布新版本
+
+将待发布的提交推送后，创建并推送新的 `v主版本.次版本.修订号` 标签，例如：
+
+```sh
+git tag -a v1.5.2 -m "Reverse SSH v1.5.2"
+git push origin v1.5.2
+```
+
+GitHub Actions 的 [Build and release](https://github.com/AdemJensen/Reverse-SSH/actions/workflows/release.yml) 会构建 macOS 通用版、Windows x64 和 Windows ARM64，并在三个 ZIP 全部通过检查后发布到 Releases。Pages 通过固定文件名下载 GitHub 标记的最新正式版，无需为每个版本更新网页。只想验证打包时，可在 Actions 里手动运行该工作流，ZIP 将作为本次运行的产物提供。

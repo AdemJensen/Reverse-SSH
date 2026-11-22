@@ -43,8 +43,7 @@ h1 { font-size: clamp(2.5rem, 4.5vw, 4.1rem); font-weight: 780; line-height: 1.1
 .button { display: inline-flex; align-items: center; justify-content: center; min-height: 2.625rem; padding: .55rem .95rem; border-radius: .55rem; font-weight: 680; text-decoration: none; line-height: 1.35; }
 .button-primary { padding-inline: 1.2rem; background: var(--green); color: #fff; }
 .button-primary:hover { background: var(--green-hover); }
-.build { display: flex; align-items: center; gap: .55rem; color: var(--muted); font-size: .875rem; }
-.build span + span { border-left: 1px solid #aac2b7; padding-left: .55rem; }
+.platforms { color: var(--muted); font-size: .875rem; }
 .product { border: 1px solid #24463c25; border-radius: .72rem; box-shadow: 0 1.2rem 3rem #17372c2b, 0 .2rem .6rem #203d3214; overflow: hidden; background: #e9f0ed; }
 .product img { width: 100%; height: auto; }
 
@@ -55,8 +54,8 @@ h2 { font-size: clamp(1.65rem, 2.8vw, 2.18rem); font-weight: 760; line-height: 1
 .text-link:hover { color: var(--green-hover); }
 .packages { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
 .package { display: flex; flex-direction: column; align-items: flex-start; gap: .35rem; padding: 1.3rem; border: 1px solid var(--border); border-radius: .85rem; min-width: 0; background: #fafcfb; }
-.package h3, .steps h3 { font-size: 1.125rem; font-weight: 735; line-height: 1.4; letter-spacing: -.014em; }
-.package p, .steps p, .features dd { color: var(--muted); }
+.package h3, .steps h3, .examples h3, .guide-options h3 { font-size: 1.125rem; font-weight: 735; line-height: 1.4; letter-spacing: -.014em; }
+.package p, .steps p, .features dd, .examples p, .guide-options p, .guides-intro { color: var(--muted); }
 .package p { margin-bottom: .85rem; }
 .button-package { margin-top: auto; border: 1px solid #bbd6ca; background: #eaf5ef; color: #155741; font-size: .9375rem; }
 .button-package:hover { border-color: #94c3b2; background: #dcefe5; }
@@ -73,11 +72,25 @@ h2 { font-size: clamp(1.65rem, 2.8vw, 2.18rem); font-weight: 760; line-height: 1
 .route-line { display: flex; align-items: center; margin: .35rem 0; min-height: 1.85rem; padding-left: .72rem; border-left: 1px solid #75a995; color: #bbebd4; font-size: .875rem; }
 .route p { width: 100%; margin-top: 1rem; border-top: 1px solid #41685b; padding-top: .8rem; color: #d0e7dc; font-size: .9375rem; }
 
+.examples { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(1rem, 3vw, 2.5rem); }
+.examples article { padding-top: .9rem; border-top: 2px solid #bddecf; }
+.examples p, .guide-options p { margin-block: .45rem; }
+.examples .text-link { display: inline-block; margin-top: .3rem; }
+.install { border-top: 1px solid var(--border); }
 .steps { padding-left: 1.55rem; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.8rem; }
 .steps li { padding-left: .18rem; }
 .steps li::marker { color: var(--green); font-weight: 750; }
 .steps p { margin-top: .36rem; }
 .install-note { margin-top: 1.45rem; color: var(--muted); font-size: .9375rem; }
+
+.guides { border-top: 1px solid var(--border); background: var(--wash); }
+.guides-intro { max-width: 46rem; margin-top: .8rem; }
+.guide-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1.15rem; }
+.guide-options article { border: 1px solid var(--border); border-radius: .85rem; background: #fafcfb; padding: 1.15rem 1.25rem; }
+.guide-options h3 a { color: var(--green); text-underline-offset: .26em; text-decoration-thickness: 1px; }
+.guide-options h3 a:hover { color: var(--green-hover); }
+.guide-options p { margin-bottom: 0; }
+
 .footer { border-top: 1px solid var(--border); }
 .footer-inner { min-height: 4.25rem; font-size: .9375rem; color: var(--muted); }
 .footer-inner span { margin-right: auto; color: var(--ink); font-weight: 720; }
@@ -91,7 +104,7 @@ h2 { font-size: clamp(1.65rem, 2.8vw, 2.18rem); font-weight: 760; line-height: 1
 }
 
 @media (max-width: 43rem) {
-  .packages, .steps, .workflow-inner { grid-template-columns: minmax(0, 1fr); }
+  .packages, .steps, .workflow-inner, .examples, .guide-options { grid-template-columns: minmax(0, 1fr); }
   .steps { gap: 1.15rem; }
   .package { padding: 1.2rem; }
   .package p { margin-bottom: .55rem; }

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#eff7f2">
+  <meta name="description" content="在 Ubuntu 或 Debian 上创建仅允许 SSH 反向 TCP 转发的专用密码账号，限制远端监听地址和端口。">
+  <title>创建专用 SSH 转发账号 · Reverse SSH</title>
+  <link rel="icon" href="assets/reverse-ssh-icon.png" type="image/png">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="tutorial.css">
+</head>
+<body>
+  <a class="skip" href="#guide-content">跳到教程正文</a>
+  <header class="header">
+    <div class="wrap header-inner">
+      <a class="brand" href="index.html" aria-label="Reverse SSH 首页">
+        <img src="assets/reverse-ssh-icon.png" alt="" width="38" height="38">
+        <span>Reverse SSH</span>
+      </a>
+      <nav aria-label="网站导航">
+        <a href="index.html#download">下载</a>
+        <a href="index.html#guides">教程</a>
+        <a href="https://github.com/AdemJensen/Reverse-SSH">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero tutorial-hero" aria-labelledby="guide-title">
+      <div class="wrap tutorial-intro">
+        <a class="text-link" href="index.html#guides">返回教程</a>
+        <h1 id="guide-title">创建专用 SSH 转发账号</h1>
+        <p>在你管理的 Ubuntu 或 Debian 公网服务器上，创建一个用密码连接的账号，只允许它将指定的服务器端口反向转发到本机。</p>
+      </div>
+    </section>
+
+    <div class="wrap tutorial-layout">
+      <nav class="tutorial-toc" aria-label="本页目录">
+        <h2>本页内容</h2>
+        <ol>
+          <li><a href="#create-user">创建系统账号</a></li>
+          <li><a href="#restrict-user">限制 SSH 权限</a></li>
+          <li><a href="#reload-sshd">检查并重载</a></li>
+          <li><a href="#connect">连接与验证</a></li>
+          <li><a href="#public-ipv4">可选的公网 IPv4 监听</a></li>
+        </ol>
+      </nav>
+      <article class="tutorial-article" id="guide-content" aria-labelledby="guide-title">
+        <section id="create-user">
+          <h2>创建系统账号</h2>
+          <p>在已安装 OpenSSH Server 的服务器上，用现有管理员会话操作。保留这个会话，直到确认重载后仍能用管理员账号另开连接。</p>
+          <p>为 <code>tunnel</code> 设置独立的强密码。以下命令创建系统账号及同名组，省略家目录，并将登录 shell 设为 <code>nologin</code>。</p>
+          <pre tabindex="0" aria-label="创建隧道系统账号的命令"><code>sudo useradd -r -U -M -d /nonexistent -s /usr/sbin/nologin tunnel
+sudo passwd tunnel</code></pre>
+          <p>如果 <code>tunnel</code> 已存在，先确认它确实是专用账号。命令选项可查阅 <a class="text-link" href="https://manpages.debian.org/trixie/passwd/useradd.8.en.html">Debian useradd(8)</a>。</p>
+        </section>
+
+        <section id="restrict-user">
+          <h2>限制 SSH 权限</h2>
+          <p>编辑 <code>/etc/ssh/sshd_config</code>。把下面的块放在全局设置末尾、现有 <code>Match</code> 块之前。如果 <code>Include</code> 文件中已有适用于此账号的匹配规则，也要检查生效顺序。同一项在多个匹配块中出现时，先匹配到的值生效。<a class="text-link" href="https://manpages.debian.org/trixie/openssh-server/sshd_config.5.en.html#Match">Debian sshd_config(5)</a></p>
+          <pre tabindex="0" aria-label="tunnel 账号专用 sshd 配置"><code>Match User tunnel
+    AuthenticationMethods password
+    PasswordAuthentication yes
+    KbdInteractiveAuthentication no
+    MaxSessions 0
+    AllowTcpForwarding remote
+    PermitListen 127.0.0.1:18080
+    GatewayPorts no
+    AllowStreamLocalForwarding no
+    AllowAgentForwarding no
+    X11Forwarding no
+    PermitTunnel no
+    PermitTTY no
+    PermitUserRC no</code></pre>
+          <ul>
+            <li><code>MaxSessions 0</code> 拒绝登录 shell、远程命令和 SFTP 等子系统，同时允许转发。</li>
+            <li><code>AllowTcpForwarding remote</code> 只允许 SSH 的远程 TCP 转发，也就是 <code>-R</code>。<code>PermitListen</code> 限定服务器监听端点，客户端仍决定要把流量转到哪里。</li>
+            <li><code>GatewayPorts no</code> 保持回环监听。客户端要明确请求 <code>127.0.0.1:18080</code>，因为省略监听主机时 OpenSSH 请求的 <code>localhost</code> 与这条许可不同。</li>
+          </ul>
+          <p>保留已有的全局密码、账号和 PAM 策略。<code>DisableForwarding yes</code> 会覆盖转发许可，如果它对 <code>tunnel</code> 生效，先核对服务器的预期管理策略。<a class="text-link" href="https://manpages.debian.org/trixie/openssh-server/sshd_config.5.en.html#PermitListen">OpenSSH 监听许可说明</a></p>
+        </section>
+
+        <section id="reload-sshd">
+          <h2>检查并重载</h2>
+          <p>先检查语法，再用 <code>-T -C</code> 检查 <code>tunnel</code> 的实际生效配置。若现有规则依赖来源地址、客户端主机名或服务器监听端口，把示例的连接参数换成实际值。</p>
+          <pre tabindex="0" aria-label="检查 SSH 配置语法和生效规则"><code>sudo /usr/sbin/sshd -t
+sudo /usr/sbin/sshd -T -C 'user=tunnel,host=client.example.com,addr=203.0.113.25,laddr=192.0.2.10,lport=22' \
+  | grep -Ei '^(authenticationmethods|passwordauthentication|kbdinteractiveauthentication|maxsessions|allowtcpforwarding|permitlisten|gatewayports|disableforwarding) '</code></pre>
+          <p>确认输出包含 <code>authenticationmethods password</code>、<code>passwordauthentication yes</code>、<code>maxsessions 0</code>、<code>allowtcpforwarding remote</code>、<code>permitlisten 127.0.0.1:18080</code> 和 <code>gatewayports no</code>，并且 <code>disableforwarding</code> 为 <code>no</code>，再重载。不同版本的输出大小写可能不同。</p>
+          <pre tabindex="0" aria-label="重载 SSH 服务"><code>sudo systemctl reload ssh</code></pre>
+          <p>如果密码认证未通过，先看 <code>sudo journalctl -u ssh -n 50 --no-pager</code>。即使不请求 shell，账号仍须满足该机器的密码状态和 PAM 账号检查。服务器若启用了 <code>pam_shells</code>，而 <code>nologin</code> 不在其认可的 shell 列表中，认证可能被拒绝。按现有管理策略为专用账号处理，保留 PAM 检查。</p>
+          <p class="tutorial-links"><a class="text-link" href="https://manpages.debian.org/trixie/openssh-server/sshd.8.en.html">Debian sshd(8)</a><a class="text-link" href="https://ubuntu.com/server/docs/how-to/security/openssh-server/">Ubuntu OpenSSH 指南</a><a class="text-link" href="https://manpages.ubuntu.com/manpages/noble/man8/pam_shells.8.html">Ubuntu pam_shells(8)</a></p>
+        </section>
+
+        <section id="connect">
+          <h2>连接与验证</h2>
+          <p>先在运行 Reverse SSH 的电脑上启动监听 <code>127.0.0.1:3000</code> 的 HTTP 服务。替换 <code>server.example.com</code> 为服务器的真实地址。首次连接时核对服务器的主机指纹。</p>
+          <dl class="tutorial-map" aria-label="Reverse SSH 配置字段">
+            <div><dt>SSH 主机</dt><dd><code>server.example.com</code></dd></div>
+            <div><dt>SSH 端口</dt><dd><code>22</code> 或服务器实际 SSH 端口</dd></div>
+            <div><dt>用户名和认证</dt><dd><code>tunnel</code> · 密码</dd></div>
+            <div><dt>远端监听</dt><dd><code>127.0.0.1:18080</code></dd></div>
+            <div><dt>本地服务</dt><dd><code>127.0.0.1:3000</code></dd></div>
+          </dl>
+          <p>在应用里填写上表并点击「连接隧道」，也可以在本机终端用下面的 OpenSSH 命令验证。两种方式择一，切换前先关闭已有隧道，释放服务器上的监听端口。若 SSH 端口不为 <code>22</code>，在命令中加上实际的 <code>-p</code> 参数。</p>
+          <pre tabindex="0" aria-label="从本机建立反向 SSH 隧道"><code>ssh -NT -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -R 127.0.0.1:18080:127.0.0.1:3000 tunnel@server.example.com</code></pre>
+          <p><code>-NT</code> 让连接只做转发，保持命令运行即可。<code>ExitOnForwardFailure</code> 能发现远端监听建立失败，实际服务还要单独验证。<a class="text-link" href="https://manpages.debian.org/trixie/openssh-client/ssh.1.en.html">Debian ssh(1)</a></p>
+          <p>隧道连上后，在服务器的<strong>管理员会话</strong>中访问远端监听端口，应收到本机服务的 HTTP 响应。专用账号禁止 SSH 本地转发，应用里的远端回环预览和检测会被拒绝，请以服务器上的检查为准。</p>
+          <pre tabindex="0" aria-label="在服务器上验证远端监听"><code>curl -i --max-time 10 http://127.0.0.1:18080/</code></pre>
+          <p>另开一个本机终端，测试专用账号是否拒绝执行远程命令。输入密码后应看到 SSH 拒绝打开会话，服务器不应返回 <code>id</code> 命令的输出。</p>
+          <pre tabindex="0" aria-label="验证专用账号拒绝远程命令"><code>ssh -T tunnel@server.example.com id</code></pre>
+        </section>
+
+        <section id="public-ipv4">
+          <h2>可选的公网 IPv4 监听</h2>
+          <p>如果其他主机要直接访问 TCP <code>18080</code>，在同一个 <code>Match User tunnel</code> 块里替换这两行。验证并重载后，把应用的远端监听地址改为 <code>0.0.0.0</code>，端口维持 <code>18080</code>，再重新连接。</p>
+          <pre tabindex="0" aria-label="允许受限的公网 IPv4 监听"><code>    PermitListen 0.0.0.0:18080
+    GatewayPorts clientspecified</code></pre>
+          <p><code>0.0.0.0</code> 会监听服务器的所有 IPv4 接口。将云安全组与系统防火墙的入站许可限制在需要访问的来源 IP 或网段，并用服务器的真实 IPv4 地址或域名访问该端口。<a class="text-link" href="https://manpages.debian.org/trixie/openssh-server/sshd_config.5.en.html#GatewayPorts">OpenSSH GatewayPorts 说明</a></p>
+          <p>发布 Web 服务时，可以保留原来的回环监听，由同台服务器的 Caddy 提供 HTTPS。<a class="text-link" href="https.html">继续配置公网 HTTPS</a></p>
+        </section>
+      </article>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <span>Reverse SSH</span>
+      <a href="index.html#download">下载应用</a>
+      <a href="https.html">配置公网 HTTPS</a>
+    </div>
+  </footer>
+</body>
+</html>
