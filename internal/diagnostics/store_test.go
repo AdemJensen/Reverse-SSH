@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -62,11 +62,10 @@ func TestRetentionAndRestart(t *testing.T) {
 		t.Fatalf("retention setting did not survive restart: %+v", stats)
 	}
 	got := reopened.Recent()
-	// JSON stores wall time; Go's in-memory timestamp additionally carries a monotonic clock reading.
-	for i := range want {
-		want[i].Time = want[i].Time.Round(0)
-	}
-	if !reflect.DeepEqual(got, want) {
+	if !slices.EqualFunc(got, want, func(a, b tunnel.Event) bool {
+		a.Time, b.Time = a.Time.UTC(), b.Time.UTC()
+		return a == b
+	}) {
 		t.Fatalf("recent status events did not survive restart: got %d, want %d", len(got), len(want))
 	}
 }
