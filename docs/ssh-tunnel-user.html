@@ -68,6 +68,8 @@ sudo passwd tunnel</code></pre>
     AllowTcpForwarding remote
     PermitListen 127.0.0.1:18080
     GatewayPorts no
+    ClientAliveInterval 30
+    ClientAliveCountMax 3
     AllowStreamLocalForwarding no
     AllowAgentForwarding no
     X11Forwarding no
@@ -78,6 +80,7 @@ sudo passwd tunnel</code></pre>
             <li><code>MaxSessions 0</code> 拒绝登录 shell、远程命令和 SFTP 等子系统，同时允许转发。</li>
             <li><code>AllowTcpForwarding remote</code> 只允许 SSH 的远程 TCP 转发，也就是 <code>-R</code>。<code>PermitListen</code> 限定服务器监听端点，客户端仍决定要把流量转到哪里。</li>
             <li><code>GatewayPorts no</code> 把监听限制在服务器的回环地址，适合宿主机上的 Nginx 或 Caddy。客户端要明确请求 <code>127.0.0.1:18080</code>。省略监听地址时，OpenSSH 请求的 <code>localhost</code> 与这条许可不同。</li>
+            <li>客户端断网或休眠时，服务器可能仍保留旧 SSH 连接和它占用的远端监听端口。<code>ClientAliveInterval 30</code> 让服务器在 30 秒未收到客户端数据时发起保活探测。<code>ClientAliveCountMax 3</code> 把连续无响应的探测次数限制为 3。服务器判定连接失效后会关闭旧连接并释放端口，通常需要约一两分钟，具体取决于探测时序。<a class="text-link" href="https://man.openbsd.org/sshd_config.5#ClientAliveInterval">OpenSSH 服务端保活手册</a></li>
             <li>需要监听服务器的特定网桥或其他非回环地址时，可为 <code>tunnel</code> 使用 <code>GatewayPorts clientspecified</code>。客户端用 <code>-R</code> 指定监听地址，<code>PermitListen</code> 限定允许请求的地址和端口。修改后要重新连接，让客户端发出新的监听请求。<a class="text-link" href="https://man.openbsd.org/sshd_config.5#GatewayPorts">OpenSSH GatewayPorts 手册</a></li>
           </ul>
           <p>保留已有的全局密码、账号和 PAM 策略。<code>DisableForwarding yes</code> 会覆盖转发许可，如果它对 <code>tunnel</code> 生效，先核对服务器的预期管理策略。<a class="text-link" href="https://manpages.debian.org/trixie/openssh-server/sshd_config.5.en.html#PermitListen">OpenSSH 监听许可说明</a></p>
@@ -88,9 +91,10 @@ sudo passwd tunnel</code></pre>
           <p>先检查语法，再用 <code>-T -C</code> 检查 <code>tunnel</code> 的实际生效配置。若现有规则依赖来源地址、客户端主机名或服务器监听端口，把示例的连接参数换成实际值。</p>
           <pre tabindex="0" aria-label="检查 SSH 配置语法和生效规则"><code>sudo /usr/sbin/sshd -t
 sudo /usr/sbin/sshd -T -C 'user=tunnel,host=client.example.com,addr=203.0.113.25,laddr=192.0.2.10,lport=22' \
-  | grep -Ei '^(authenticationmethods|passwordauthentication|kbdinteractiveauthentication|maxsessions|allowtcpforwarding|permitlisten|gatewayports|disableforwarding) '</code></pre>
-          <p>确认输出包含 <code>authenticationmethods password</code>、<code>passwordauthentication yes</code>、<code>maxsessions 0</code>、<code>allowtcpforwarding remote</code>，并且 <code>disableforwarding</code> 为 <code>no</code>。默认回环方案应显示 <code>permitlisten 127.0.0.1:18080</code> 和 <code>gatewayports no</code>。选择下方的其他监听地址时，用对应值核对这两项，确认后再重载。</p>
+  | grep -Ei '^(authenticationmethods|passwordauthentication|kbdinteractiveauthentication|maxsessions|allowtcpforwarding|permitlisten|gatewayports|disableforwarding|clientaliveinterval|clientalivecountmax) '</code></pre>
+          <p>确认输出包含 <code>authenticationmethods password</code>、<code>passwordauthentication yes</code>、<code>maxsessions 0</code>、<code>allowtcpforwarding remote</code>、<code>clientaliveinterval 30</code> 和 <code>clientalivecountmax 3</code>，并且 <code>disableforwarding</code> 为 <code>no</code>。默认回环方案应显示 <code>permitlisten 127.0.0.1:18080</code> 和 <code>gatewayports no</code>。选择下方的其他监听地址时，用对应值核对这两项，确认后再重载。</p>
           <pre tabindex="0" aria-label="重载 SSH 服务"><code>sudo systemctl reload ssh</code></pre>
+          <p>保活设置对重载后建立的 SSH 连接生效。重载完成后重新连接隧道，即可使用新设置。</p>
           <p>如果密码认证未通过，先看 <code>sudo journalctl -u ssh -n 50 --no-pager</code>。即使不请求 shell，账号仍须满足该机器的密码状态和 PAM 账号检查。服务器若启用了 <code>pam_shells</code>，而 <code>nologin</code> 不在其认可的 shell 列表中，认证可能被拒绝。按现有管理策略为专用账号处理，保留 PAM 检查。</p>
           <p class="tutorial-links"><a class="text-link" href="https://manpages.debian.org/trixie/openssh-server/sshd.8.en.html">Debian sshd(8)</a><a class="text-link" href="https://ubuntu.com/server/docs/how-to/security/openssh-server/">Ubuntu OpenSSH 指南</a><a class="text-link" href="https://manpages.ubuntu.com/manpages/noble/man8/pam_shells.8.html">Ubuntu pam_shells(8)</a></p>
         </section>
