@@ -33,7 +33,7 @@ func TestReadLegacySingleForward(t *testing.T) {
 			t.Fatalf("legacy route did not migrate: %+v", p.Forwards)
 		}
 		if p.Host != "server.example.com" || p.SSHPort != 2222 || p.User != "operator" ||
-			p.KeyPath != "~/.ssh/id_ed25519" || p.Reconnect || !p.AutoConnect {
+			p.KeyPath != "~/.ssh/id_ed25519" || p.Reconnect || p.RetryForever || !p.AutoConnect {
 			t.Fatalf("legacy connection values did not carry forward: %+v", p)
 		}
 	}
@@ -64,6 +64,7 @@ func TestRememberedPasswordProfileRoundTrip(t *testing.T) {
 	p.User = "operator"
 	p.Auth = tunnel.AuthPassword
 	p.AutoConnect = true
+	p.RetryForever = true
 	p.RememberPassword = true
 	const secret = " fixture-password "
 	p.SavedPassword = secret
@@ -106,6 +107,9 @@ func TestRememberedPasswordProfileRoundTrip(t *testing.T) {
 	}
 	if stored.Host != "2001:db8::1" || !stored.AutoConnect || !stored.RememberPassword || stored.SavedPassword != secret {
 		t.Fatal("remembered password did not round trip through local storage")
+	}
+	if config := stored.config(); !config.AutoReconnect || !config.RetryForever {
+		t.Fatal("saved retry preferences did not carry through to the tunnel configuration")
 	}
 	apiProfile, err := json.Marshal(stored)
 	if err != nil {

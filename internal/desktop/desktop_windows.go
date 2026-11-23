@@ -145,6 +145,7 @@ const (
 	keyDialog fileDialogKind = iota
 	importDialog
 	exportDialog
+	logsDialog
 )
 
 type fileRequest struct {
@@ -485,6 +486,10 @@ func PickExportConfig(startDir, suggestedName string) (string, error) {
 	return pickFile(fileRequest{dir: startDir, suggestedName: suggestedName, kind: exportDialog})
 }
 
+func PickExportLogs(startDir, suggestedName string) (string, error) {
+	return pickFile(fileRequest{dir: startDir, suggestedName: suggestedName, kind: logsDialog})
+}
+
 func pickFile(request fileRequest) (string, error) {
 	shell := activeWindow.Load()
 	if shell == nil {
@@ -547,7 +552,11 @@ func openFileDialog(owner uintptr, request fileRequest) (string, error) {
 		flags: fileDialogFlags | fileMustExist,
 	}
 	if request.kind != keyDialog {
-		filter := utf16.Encode([]rune("JSON 配置文件 (*.json)\x00*.json\x00\x00"))
+		pattern := "JSON 配置文件 (*.json)\x00*.json\x00\x00"
+		if request.kind == logsDialog {
+			pattern = "ZIP 压缩包 (*.zip)\x00*.zip\x00\x00"
+		}
+		filter := utf16.Encode([]rune(pattern))
 		options.filter = &filter[0]
 		options.index = 1
 	}
@@ -555,16 +564,20 @@ func openFileDialog(owner uintptr, request fileRequest) (string, error) {
 	switch request.kind {
 	case importDialog:
 		options.title = windows.StringToUTF16Ptr("导入连接配置")
-	case exportDialog:
-		options.title = windows.StringToUTF16Ptr("导出连接配置")
+	case exportDialog, logsDialog:
+		title, extension := "导出连接配置", "json"
+		if request.kind == logsDialog {
+			title, extension = "导出诊断日志", "zip"
+		}
+		options.title = windows.StringToUTF16Ptr(title)
 		options.flags = fileDialogFlags | confirmOverwrite
-		options.defaultExtension = windows.StringToUTF16Ptr("json")
+		options.defaultExtension = windows.StringToUTF16Ptr(extension)
 		name, err := windows.UTF16FromString(request.suggestedName)
 		if err != nil {
 			return "", err
 		}
 		if len(name) > len(file) {
-			return "", errors.New("建议的配置文件名过长")
+			return "", errors.New("建议的文件名过长")
 		}
 		copy(file, name)
 		dialog = getSaveFileName

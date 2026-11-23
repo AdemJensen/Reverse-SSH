@@ -11,11 +11,11 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"reversessh/internal/diagnostics"
 	"reversessh/internal/startup"
 	"reversessh/internal/tunnel"
 )
@@ -27,18 +27,18 @@ type Controller struct {
 	profilePath string
 	pending     *connectRequest
 	appMessage  string
-	lastLog     logEntry
-	logs        []logEntry
+	diagnostics *diagnostics.Store
 	dialogs     Dialogs
 	tests       map[httpEndpoint]*listeningHTTPServer
 	previews    map[httpEndpoint]*remotePreview
 }
 
 type Dialogs struct {
-	PickKey func(string) (string, error)
-	Import  func(string) (string, error)
-	Export  func(string, string) (string, error)
-	OpenURL func(string) error
+	PickKey    func(string) (string, error)
+	Import     func(string) (string, error)
+	Export     func(string, string) (string, error)
+	ExportLogs func(string, string) (string, error)
+	OpenURL    func(string) error
 }
 
 type connectRequest struct {
@@ -71,38 +71,41 @@ type connectionStatus struct {
 }
 
 type responseState struct {
-	Profile                  profile          `json:"profile"`
-	Status                   connectionStatus `json:"status"`
-	AutoStart                bool             `json:"autoStart"`
-	AutoStartError           string           `json:"autoStartError,omitempty"`
-	HasSavedPassword         bool             `json:"hasSavedPassword"`
-	SavedPasswordUnavailable bool             `json:"savedPasswordUnavailable,omitempty"`
-	Logs                     []logEntry       `json:"logs,omitempty"`
-	Tests                    []httpEndpoint   `json:"tests"`
+	Profile                  profile           `json:"profile"`
+	Status                   connectionStatus  `json:"status"`
+	AutoStart                bool              `json:"autoStart"`
+	AutoStartError           string            `json:"autoStartError,omitempty"`
+	HasSavedPassword         bool              `json:"hasSavedPassword"`
+	SavedPasswordUnavailable bool              `json:"savedPasswordUnavailable,omitempty"`
+	Logs                     []logEntry        `json:"logs,omitempty"`
+	Diagnostics              diagnostics.Stats `json:"diagnostics"`
+	Tests                    []httpEndpoint    `json:"tests"`
 }
 
-func New(dataDir string, autoConnect bool, dialogs Dialogs) (*Controller, error) {
+func New(dataDir string, autoConnect bool, dialogs Dialogs, startupLogs ...string) (*Controller, error) {
 	path := filepath.Join(dataDir, "profile.json")
 	p, err := loadProfile(path)
 	if err != nil {
 		return nil, fmt.Errorf("无法读取连接配置 %s：%w", path, err)
 	}
+	logs := diagnostics.New(dataDir, startupLogs...)
 	c := &Controller{
-		manager: tunnel.New(filepath.Join(dataDir, "known_hosts")),
+		manager: tunnel.NewWithEvents(filepath.Join(dataDir, "known_hosts"), logs.Record),
 		profile: p, profilePath: path, dialogs: dialogs,
-		tests: make(map[httpEndpoint]*listeningHTTPServer), previews: make(map[httpEndpoint]*remotePreview),
+		diagnostics: logs,
+		tests:       make(map[httpEndpoint]*listeningHTTPServer), previews: make(map[httpEndpoint]*remotePreview),
 	}
-	initial := c.manager.Snapshot()
-	c.lastLog = logEntry{Level: initial.State, Message: initial.Message}
 	if !autoConnect || !p.AutoConnect {
 		return c, nil
 	}
 	if p.Auth == tunnel.AuthPassword && !p.hasSavedPassword() {
 		c.appMessage = "此连接需要 SSH 密码，请输入密码后连接。"
+		c.recordAutoConnectError(c.appMessage)
 		return c, nil
 	}
 	if err := c.connect(connectRequest{profile: p}, false); err != nil {
 		c.appMessage = "自动连接未启动：" + err.Error()
+		c.recordAutoConnectError("无法用已保存的配置启动自动连接，请在应用中检查配置。")
 	}
 	return c, nil
 }
@@ -117,6 +120,7 @@ func (c *Controller) Close() {
 		delete(c.tests, endpoint)
 	}
 	c.manager.Stop()
+	c.diagnostics.Close()
 }
 
 func (c *Controller) Listen(assets fs.FS) (*http.Server, string, error) {
@@ -202,6 +206,12 @@ func (c *Controller) api(path string, w http.ResponseWriter, r *http.Request) {
 		return
 	case "POST api/export":
 		c.exportConfiguration(w, r)
+		return
+	case "POST api/logs/export":
+		c.exportLogs(w, r)
+		return
+	case "PUT api/logs/limit", "POST api/logs/clear":
+		c.changeLogs(w, r)
 		return
 	case "POST api/open":
 		c.openEndpoint(w, r)
@@ -358,15 +368,14 @@ func (c *Controller) state() responseState {
 		(status.State == tunnel.StateConnected && c.pending != nil && !c.pending.Reconnect) {
 		c.pending = nil
 	}
-	if status.Message != "" && (c.lastLog.Level != status.State || c.lastLog.Message != status.Message) {
-		c.lastLog = logEntry{Time: time.Now(), Level: status.State, Message: status.Message}
-		c.logs = append(c.logs, c.lastLog)
-		if len(c.logs) > 32 {
-			c.logs = slices.Delete(c.logs, 0, len(c.logs)-32)
-		}
+	events := c.diagnostics.Recent()
+	logs := make([]logEntry, 0, len(events))
+	for _, event := range events {
+		logs = append(logs, logEntry{Time: event.Time, Level: event.Level, Message: event.Message})
 	}
 	resp := responseState{
-		Profile: c.profile, Status: status, Logs: c.logs, Tests: c.testEndpoints(),
+		Profile: c.profile, Status: status, Logs: logs, Tests: c.testEndpoints(),
+		Diagnostics:              c.diagnostics.Stats(),
 		HasSavedPassword:         c.profile.hasSavedPassword(),
 		SavedPasswordUnavailable: c.profile.SavedPasswordUnavailable,
 	}

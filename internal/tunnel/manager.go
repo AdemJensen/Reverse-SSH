@@ -34,6 +34,7 @@ type HostKey struct {
 
 type Manager struct {
 	knownHostsPath string
+	sink           func(Event)
 	mu             sync.Mutex
 	status         Status
 	active         *session
@@ -48,8 +49,15 @@ type session struct {
 }
 
 func New(knownHostsPath string) *Manager {
+	return NewWithEvents(knownHostsPath, nil)
+}
+
+// NewWithEvents creates a tunnel manager with a synchronous, serialized event sink.
+// The sink must return promptly and must not call back into the manager or its owner.
+func NewWithEvents(knownHostsPath string, sink func(Event)) *Manager {
 	return &Manager{
 		knownHostsPath: knownHostsPath,
+		sink:           sink,
 		status:         Status{State: StateStopped, Message: "隧道已断开"},
 	}
 }
@@ -84,7 +92,8 @@ func (m *Manager) Start(config Config, secrets Secrets) error {
 	run := &session{Context: ctx, cancel: cancel, done: make(chan struct{})}
 	m.active = run
 	m.pending = nil
-	m.status = Status{State: StateConnecting, Message: "正在连接 SSH 服务器"}
+	status := Status{State: StateConnecting, Message: "正在连接 SSH 服务器"}
+	m.setStatusLocked(status, "session_started", levelInfo, status.Message)
 	go m.run(run, config, secrets)
 	return nil
 }
@@ -93,9 +102,16 @@ func (m *Manager) Stop() {
 	m.mu.Lock()
 	run := m.active
 	if run == nil {
-		m.status = Status{State: StateStopped, Message: "隧道已断开"}
+		status := Status{State: StateStopped, Message: "隧道已断开"}
+		if m.status.State != StateStopped {
+			m.emitLocked("stop_requested", levelInfo, "已请求停止 SSH 隧道", false)
+			m.setStatusLocked(status, "session_stopped", levelInfo, status.Message)
+		} else {
+			m.status = status
+		}
 		m.pending = nil
-	} else {
+	} else if run.Err() == nil {
+		m.emitLocked("stop_requested", levelInfo, "已请求停止 SSH 隧道", false)
 		run.cancel()
 	}
 	m.mu.Unlock()
@@ -111,10 +127,13 @@ func (m *Manager) TrustHost(fingerprint string) error {
 		return errors.New("服务器指纹已变化，请重新连接并核对")
 	}
 	if err := m.pending.save(m.knownHostsPath); err != nil {
+		m.emitLocked("host_key_save_failed", levelError, "无法保存 SSH 服务器指纹", false)
 		return fmt.Errorf("无法保存服务器指纹：%w", err)
 	}
+	fingerprint = m.pending.hostKey.Fingerprint
 	m.pending = nil
-	m.status = Status{State: StateStopped, Message: "服务器指纹已保存，可以连接"}
+	status := Status{State: StateStopped, Message: "服务器指纹已保存，可以连接"}
+	m.setStatusLocked(status, "host_key_trusted", levelInfo, "已信任 SSH 服务器指纹 "+fingerprint)
 	return nil
 }
 
@@ -123,7 +142,9 @@ func (m *Manager) run(run *session, config Config, secrets Secrets) {
 	defer run.cancel()
 	const firstRetryDelay = 2 * time.Second
 	retryDelay := firstRetryDelay
+	retryCount := 0
 	final := Status{State: StateStopped, Message: "隧道已断开"}
+	finalKind, finalLevel, finalMessage := "session_stopped", levelInfo, final.Message
 	var prompt *hostKeyPrompt
 	for run.Err() == nil {
 		connected, retryable, err := m.connectAndForward(run, config, secrets)
@@ -132,19 +153,34 @@ func (m *Manager) run(run *session, config Config, secrets Secrets) {
 		}
 		if errors.As(err, &prompt) {
 			final = Status{State: StateHostKey, Message: "首次连接，请核对 SSH 服务器指纹"}
+			finalKind, finalLevel = "host_key_required", levelWarning
+			finalMessage = final.Message + "（" + prompt.hostKey.Fingerprint + "）"
 			break
 		}
+		kind, message := describeFailure(err)
 		if !config.AutoReconnect || !retryable {
 			final = Status{State: StateError, Message: err.Error()}
+			finalKind, finalLevel, finalMessage = kind, levelError, message
 			break
 		}
 		if connected {
 			retryDelay = firstRetryDelay
+			retryCount = 0
 		}
-		m.update(Status{
-			State:   StateReconnecting,
-			Message: fmt.Sprintf("%s。%d 秒后重试", err, int(retryDelay/time.Second)),
-		})
+		retry := "重试"
+		if config.RetryForever {
+			retryCount++
+			retry = fmt.Sprintf("第 %d 次重试", retryCount)
+		}
+		schedule := fmt.Sprintf("%d 秒后%s", int(retryDelay/time.Second), retry)
+		m.mu.Lock()
+		if run.Err() == nil {
+			m.emitLocked(kind, levelWarning, message, false)
+			m.connected = nil
+			m.setStatusLocked(Status{State: StateReconnecting, Message: err.Error() + "。" + schedule},
+				"retry_scheduled", levelWarning, message+"。"+schedule)
+		}
+		m.mu.Unlock()
 		select {
 		case <-run.Done():
 		case <-time.After(retryDelay):
@@ -155,18 +191,12 @@ func (m *Manager) run(run *session, config Config, secrets Secrets) {
 	m.mu.Lock()
 	if run.Err() != nil {
 		final = Status{State: StateStopped, Message: "隧道已断开"}
+		finalKind, finalLevel, finalMessage = "session_stopped", levelInfo, final.Message
 		prompt = nil
 	}
 	m.active = nil
 	m.connected = nil
 	m.pending = prompt
-	m.status = final
-	m.mu.Unlock()
-}
-
-func (m *Manager) update(status Status) {
-	m.mu.Lock()
-	m.status = status
-	m.connected = nil
+	m.setStatusLocked(final, finalKind, finalLevel, finalMessage)
 	m.mu.Unlock()
 }

@@ -98,9 +98,15 @@
             <div><label for="autoConnect">登录后自动连接</label><p id="autoConnectNote">在后台连接已保存的端口</p></div>
             <input class="switch" form="profileForm" name="autoConnect" type="checkbox" role="switch" id="autoConnect" aria-describedby="autoConnectNote" disabled>
           </div>
-          <div class="setting-row" id="reconnectRow">
-            <div><label for="reconnect">自动重连</label><p id="reconnectNote">连接意外中断时重试</p></div>
-            <input class="switch" form="profileForm" name="reconnect" type="checkbox" role="switch" id="reconnect" aria-describedby="reconnectNote" checked disabled>
+          <div class="setting-row retry-settings">
+            <div class="retry-setting">
+              <div><label for="reconnect">自动重连</label><p id="reconnectNote">临时故障时重试</p></div>
+              <input class="switch" form="profileForm" name="reconnect" type="checkbox" role="switch" id="reconnect" aria-describedby="reconnectNote" checked disabled>
+            </div>
+            <div class="retry-setting">
+              <div><label for="retryForever">无限重试</label><p id="retryForeverNote">含远端拒绝监听</p></div>
+              <input class="switch" form="profileForm" name="retryForever" type="checkbox" role="switch" id="retryForever" aria-describedby="retryForeverNote" disabled>
+            </div>
           </div>
           <p class="background-note" id="backgroundNote">关闭窗口后隧道继续运行。</p>
           <p class="settings-message" id="settingsMessage" role="status" hidden></p>
@@ -122,6 +128,32 @@
           <button class="button button-secondary" id="openGitHub" type="button" data-about-page="github" aria-label="在默认浏览器打开 GitHub 项目">GitHub</button>
         </div>
         <p class="form-message" id="aboutMessage" role="status" hidden></p>
+        <section class="log-management" aria-labelledby="logManagementTitle">
+          <div class="log-management-head">
+            <h3 id="logManagementTitle">诊断日志</h3>
+            <p id="logUsage">正在读取日志占用…</p>
+          </div>
+          <form class="log-limit-form" id="logLimitForm">
+            <label for="logMaxMiB">日志容量上限（MiB）</label>
+            <div class="log-limit-controls">
+              <input id="logMaxMiB" type="number" min="1" max="256" step="1" value="16" required disabled>
+              <button class="button button-secondary" id="saveLogLimit" type="submit" disabled>保存上限</button>
+            </div>
+          </form>
+          <div class="about-actions">
+            <button class="button button-secondary" id="exportLogs" type="button" disabled>导出日志 ZIP</button>
+            <button class="button button-secondary" id="clearLogs" type="button" aria-controls="clearLogPrompt" aria-expanded="false" disabled>清空日志</button>
+          </div>
+          <div class="log-clear-prompt" id="clearLogPrompt" role="group" aria-labelledby="clearLogQuestion" hidden>
+            <p id="clearLogQuestion">清空已保存在本机的诊断日志和当前连接记录？</p>
+            <div class="about-actions">
+              <button class="button button-secondary" id="cancelClearLogs" type="button">取消</button>
+              <button class="button button-secondary log-clear-confirm" id="confirmClearLogs" type="button">确认清空</button>
+            </div>
+          </div>
+          <p class="form-message" id="logStorageError" role="status" hidden></p>
+          <p class="form-message" id="logActionMessage" role="status" hidden></p>
+        </section>
         <p class="about-copyright">© 2026 Reverse SSH</p>
       </div>
     </section>

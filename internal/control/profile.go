@@ -26,6 +26,7 @@ type profile struct {
 	Auth                     string    `json:"auth"`
 	KeyPath                  string    `json:"keyPath"`
 	Reconnect                bool      `json:"reconnect"`
+	RetryForever             bool      `json:"retryForever,omitempty"`
 	AutoConnect              bool      `json:"autoConnect"`
 	RememberPassword         bool      `json:"rememberPassword"`
 	SavedPassword            string    `json:"-"`
@@ -191,7 +192,8 @@ func (p profile) config() tunnel.Config {
 	config := tunnel.Config{
 		SSHHost: p.Host, SSHPort: p.SSHPort, SSHUser: p.User,
 		AuthMode: p.Auth, PrivateKeyPath: p.KeyPath,
-		AutoReconnect: p.Reconnect, Forwards: make([]tunnel.Forward, len(p.Forwards)),
+		AutoReconnect: p.Reconnect, RetryForever: p.RetryForever,
+		Forwards: make([]tunnel.Forward, len(p.Forwards)),
 	}
 	for index, route := range p.Forwards {
 		config.Forwards[index] = tunnel.Forward{

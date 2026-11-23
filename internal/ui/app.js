@@ -6,7 +6,7 @@ const field = (name) => form.elements.namedItem(name);
 const appTabs = byId('appTabs');
 const tabs = Array.from(appTabs.querySelectorAll('[role="tab"]'));
 const sshServerFields = ['host', 'sshPort', 'user'];
-const profileFields = [...sshServerFields, 'auth', 'keyPath', 'reconnect', 'autoConnect', 'rememberPassword'];
+const profileFields = [...sshServerFields, 'auth', 'keyPath', 'reconnect', 'retryForever', 'autoConnect', 'rememberPassword'];
 const forwardFields = ['remoteBind', 'remotePort', 'localHost', 'localPort'];
 const defaultForward = { remoteBind: '127.0.0.1', remotePort: 8080, localHost: '127.0.0.1', localPort: 3000 };
 const forwardLimit = 64;
@@ -31,7 +31,7 @@ const statusMessages = {
   stopped: '连接后可从远端访问本地服务。',
   connecting: '正在与 SSH 服务器建立连接。',
   connected: '隧道正在转发。',
-  reconnecting: '连接已中断，正在自动重试。',
+  reconnecting: '正在自动重试连接。',
   hostkey: '请核对 SSH 主机指纹。',
   error: '请检查连接配置后重试。',
 };
@@ -42,6 +42,8 @@ let action = '';
 let startupPending = false;
 let keyPickerPending = false;
 let routeActionPending = false;
+let logLimitEdited = false;
+let logOperation = '';
 let refreshing = false;
 let stateVersion = 0;
 let currentTrust;
@@ -121,6 +123,97 @@ aboutActions.addEventListener('click', async (event) => {
   }
 });
 
+const logLimitForm = byId('logLimitForm');
+const logMaxMiB = byId('logMaxMiB');
+const saveLogLimit = byId('saveLogLimit');
+const exportLogs = byId('exportLogs');
+const clearLogs = byId('clearLogs');
+const clearLogPrompt = byId('clearLogPrompt');
+
+function formatLogSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  const unit = bytes < 1024 * 1024 ? 'KiB' : 'MiB';
+  const divisor = unit === 'KiB' ? 1024 : 1024 * 1024;
+  return `${(bytes / divisor).toLocaleString('zh-CN', { maximumFractionDigits: 1 })} ${unit}`;
+}
+
+function showDiagnostics() {
+  const diagnostics = state?.diagnostics;
+  const enabled = Boolean(diagnostics) && !logOperation;
+  const usage = diagnostics ? `已用 ${formatLogSize(diagnostics.bytes)} / ${diagnostics.maxMiB} MiB` : '日志状态暂不可用';
+  const usageLabel = byId('logUsage');
+  if (usageLabel.textContent !== usage) usageLabel.textContent = usage;
+  if (!logLimitEdited && diagnostics && logMaxMiB.value !== String(diagnostics.maxMiB)) logMaxMiB.value = diagnostics.maxMiB;
+  logMaxMiB.disabled = !enabled;
+  saveLogLimit.disabled = !enabled || !logLimitEdited;
+  exportLogs.disabled = !enabled;
+  clearLogs.disabled = !enabled;
+  byId('confirmClearLogs').disabled = !enabled;
+  saveLogLimit.textContent = logOperation === 'limit' ? '保存中…' : '保存上限';
+  exportLogs.textContent = logOperation === 'export' ? '导出中…' : '导出日志 ZIP';
+  announce('logStorageError', diagnostics?.error, Boolean(diagnostics?.error));
+}
+
+function revealClearLogPrompt(show) {
+  clearLogPrompt.hidden = !show;
+  clearLogs.setAttribute('aria-expanded', String(show));
+  (show ? byId('cancelClearLogs') : clearLogs).focus({ preventScroll: true });
+}
+
+async function runLogAction(kind) {
+  if (logOperation || !state?.diagnostics) return;
+  const focused = document.activeElement;
+  const pendingLabels = { limit: '正在保存日志上限…', export: '请选择日志 ZIP 的保存位置。', clear: '正在清空日志…' };
+  logOperation = kind;
+  announce('logActionMessage', pendingLabels[kind]);
+  showDiagnostics();
+  try {
+    const settingLimit = kind === 'limit';
+    const result = await api(`logs/${kind}`, settingLimit ? 'PUT' : 'POST', settingLimit ? { maxMiB: logMaxMiB.valueAsNumber } : {});
+    if (kind === 'export') {
+      announce('logActionMessage', result.saved ? '日志 ZIP 已导出。' : '已取消导出。');
+    } else {
+      stateVersion++;
+      state = { ...state, diagnostics: result.diagnostics };
+      if (settingLimit) {
+        logLimitEdited = false;
+        announce('logActionMessage', '日志上限已保存。');
+      } else {
+        state.logs = result.logs;
+        showLogs(state.logs);
+        announce('logActionMessage', '日志已清空。');
+      }
+    }
+  } catch (error) {
+    announce('logActionMessage', error.message, true);
+  } finally {
+    logOperation = '';
+    showDiagnostics();
+    if (document.hasFocus() && document.activeElement === document.body && focused?.isConnected && !focused.disabled) {
+      focused.focus({ preventScroll: true });
+    }
+    await refreshState(true);
+  }
+}
+
+logMaxMiB.addEventListener('input', () => {
+  logLimitEdited = true;
+  announce('logActionMessage');
+  showDiagnostics();
+});
+logLimitForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  if (logLimitForm.reportValidity()) runLogAction('limit');
+});
+exportLogs.addEventListener('click', () => runLogAction('export'));
+clearLogs.addEventListener('click', () => revealClearLogPrompt(clearLogPrompt.hidden));
+byId('cancelClearLogs').addEventListener('click', () => revealClearLogPrompt(false));
+byId('confirmClearLogs').addEventListener('click', () => {
+  revealClearLogPrompt(false);
+  runLogAction('clear');
+});
+
 function readInput(input) {
   if (input.type === 'checkbox') return input.checked;
   if (input.type === 'number') return Number.isFinite(input.valueAsNumber) ? input.valueAsNumber : 0;
@@ -184,7 +277,7 @@ function updateForwardRowLabels() {
 function loadProfile(profile) {
   if (!profile) return;
   for (const name of profileFields) {
-    if (profile[name] === undefined) continue;
+    if (profile[name] === undefined && name !== 'retryForever') continue;
     const input = field(name);
     if (input.type === 'checkbox') input.checked = Boolean(profile[name]);
     else if (input.value !== String(profile[name])) input.value = profile[name];
@@ -417,7 +510,10 @@ function showControls() {
   announce('passwordStorageStatus', storageMessage, savedUnavailable && remembering);
   byId('pickKey').disabled = !keys || keyPickerPending;
   byId('pickKey').textContent = keyPickerPending ? '选择中' : '浏览';
-  byId('reconnect').disabled = !editable;
+  const reconnect = byId('reconnect');
+  reconnect.disabled = !editable;
+  byId('retryForever').disabled = !editable || !reconnect.checked;
+  byId('retryForeverNote').textContent = reconnect.checked ? '含远端拒绝监听' : '需开启自动重连';
   byId('autoConnect').disabled = !editable || !canAutoConnect;
   byId('autoConnectNote').textContent = canAutoConnect ? '在后台连接已保存的端口' : '保存 SSH 密码后可在后台连接';
   byId('autoStart').disabled = !state || startupPending || routeActionPending;
@@ -502,6 +598,7 @@ function showState(next) {
   showControls();
   showTrust(current === 'hostkey' ? status.hostKey : undefined);
   showLogs(state.logs);
+  showDiagnostics();
 }
 
 async function refreshState(force = false) {
@@ -703,6 +800,7 @@ forwardList.addEventListener('click', (event) => {
 
 form.addEventListener('input', onEdit);
 byId('reconnect').addEventListener('input', onEdit);
+byId('retryForever').addEventListener('input', onEdit);
 byId('autoConnect').addEventListener('input', onEdit);
 
 byId('connectButton').addEventListener('click', () => {

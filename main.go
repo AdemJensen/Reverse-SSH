@@ -23,7 +23,7 @@ func main() {
 	flag.Parse()
 	logPath, closeDiagnostics := startDiagnostics(*autostart)
 	defer closeDiagnostics()
-	if err := run(*autostart); err != nil {
+	if err := run(*autostart, logPath); err != nil {
 		if logPath != "" {
 			log.Printf("启动失败：%v", err)
 		}
@@ -42,7 +42,7 @@ func main() {
 	}
 }
 
-func run(autostart bool) error {
+func run(autostart bool, logPath string) error {
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return fmt.Errorf("无法定位用户配置目录：%w", err)
@@ -67,8 +67,8 @@ func run(autostart bool) error {
 	defer unlock()
 	controller, err := control.New(dataDir, autostart, control.Dialogs{
 		PickKey: desktop.PickKey, Import: desktop.PickImportConfig, Export: desktop.PickExportConfig,
-		OpenURL: desktop.OpenURL,
-	})
+		ExportLogs: desktop.PickExportLogs, OpenURL: desktop.OpenURL,
+	}, logPath)
 	if err != nil {
 		return err
 	}
@@ -78,7 +78,7 @@ func run(autostart bool) error {
 		return fmt.Errorf("无法启动本机界面：%w", err)
 	}
 	defer server.Close()
-	if runtime.GOOS == "windows" {
+	if logPath != "" {
 		log.Print("本机界面服务已就绪。")
 	}
 	return desktop.Run(url, dataDir, autostart)

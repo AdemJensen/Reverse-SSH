@@ -172,6 +172,73 @@ func TestReverseMultipleForwardsRollbackAndReconnect(t *testing.T) {
 	awaitForwardCleanup(t, released)
 }
 
+func TestRetryForeverWaitsForRemoteListener(t *testing.T) {
+	local, occupied, sshListener := listenLoopback(t), listenLoopback(t), listenLoopback(t)
+	go serveFixtureLocal(local, "recovered: ")
+	signer := testSigner(t)
+	secrets := Secrets{Password: "fixture-password"}
+	sshConfig := &ssh.ServerConfig{
+		PasswordCallback: func(_ ssh.ConnMetadata, password []byte) (*ssh.Permissions, error) {
+			if string(password) != secrets.Password {
+				return nil, ssh.ErrNoAuth
+			}
+			return nil, nil
+		},
+	}
+	sshConfig.AddHostKey(signer)
+	dropTransport := make(chan struct{}, 1)
+	go serveFixtureSSH(sshListener, sshConfig, dropTransport, nil, false)
+	manager := New(filepath.Join(t.TempDir(), "known_hosts"))
+	t.Cleanup(manager.Stop)
+	config := Config{
+		SSHHost: "127.0.0.1", SSHPort: sshListener.Addr().(*net.TCPAddr).Port, SSHUser: "fixture",
+		AuthMode: AuthPassword, LocalPort: local.Addr().(*net.TCPAddr).Port, RemotePort: occupied.Addr().(*net.TCPAddr).Port,
+		AutoReconnect: true, RetryForever: true,
+	}
+	start := func(secrets Secrets) {
+		t.Helper()
+		if err := manager.Start(config, secrets); err != nil {
+			t.Fatal(err)
+		}
+	}
+	start(secrets)
+	awaitState(t, manager, StateHostKey)
+	if err := manager.TrustHost(ssh.FingerprintSHA256(signer.PublicKey())); err != nil {
+		t.Fatal(err)
+	}
+
+	config.AutoReconnect = false
+	start(secrets)
+	awaitStatus(t, manager, StateError, "远端无法监听")
+	config.AutoReconnect = true
+	start(Secrets{Password: "rejected-fixture-password"})
+	awaitStatus(t, manager, StateError, "认证失败")
+
+	start(secrets)
+	awaitStatus(t, manager, StateReconnecting, "远端无法监听")
+	stopped := make(chan struct{})
+	go func() {
+		manager.Stop()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not interrupt retry backoff")
+	}
+	awaitState(t, manager, StateStopped)
+
+	start(secrets)
+	awaitStatus(t, manager, StateReconnecting, "第 2 次重试")
+	if err := occupied.Close(); err != nil {
+		t.Fatal(err)
+	}
+	awaitState(t, manager, StateConnected)
+	assertForwardedResponse(t, occupied.Addr().String(), "recovered: payload")
+	dropTransport <- struct{}{}
+	awaitStatus(t, manager, StateReconnecting, "第 1 次重试")
+}
+
 func awaitForwardCleanup(t *testing.T, released <-chan struct{}) {
 	t.Helper()
 	select {
@@ -235,17 +302,22 @@ func testSigner(t *testing.T) ssh.Signer {
 
 func awaitState(t *testing.T, manager *Manager, expected string) Status {
 	t.Helper()
+	return awaitStatus(t, manager, expected, "")
+}
+
+func awaitStatus(t *testing.T, manager *Manager, expected, message string) Status {
+	t.Helper()
 	for deadline := time.Now().Add(8 * time.Second); time.Now().Before(deadline); {
 		status := manager.Snapshot()
-		if status.State == expected {
+		if status.State == expected && strings.Contains(status.Message, message) {
 			return status
 		}
 		if status.State == StateError {
-			t.Fatalf("expected %s but got error: %s", expected, status.Message)
+			t.Fatalf("expected %s with %q but got error: %s", expected, message, status.Message)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("expected %s but got %+v", expected, manager.Snapshot())
+	t.Fatalf("expected %s with %q but got %+v", expected, message, manager.Snapshot())
 	return Status{}
 }
 

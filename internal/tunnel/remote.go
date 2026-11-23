@@ -19,12 +19,13 @@ func (m *Manager) setConnected(ctx context.Context, client *ssh.Client, remoteAd
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.connected = &connectedSession{ctx: ctx, client: client}
-	m.status = Status{
+	status := Status{
 		State:           StateConnected,
 		Message:         "反向隧道已建立",
 		RemoteAddress:   remoteAddresses[0],
 		RemoteAddresses: remoteAddresses,
 	}
+	m.setStatusLocked(status, "session_connected", levelInfo, status.Message)
 }
 
 // DialRemote opens a TCP connection to an active reverse listener from the SSH server.

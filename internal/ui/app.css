@@ -169,6 +169,8 @@ h2 { font-size: 15px; font-weight: 700; }
 .setting-row + .setting-row { border-top: 1px solid var(--line); }
 .setting-row label { font-size: 12px; font-weight: 680; }
 .setting-row p { margin-top: 2px; color: var(--muted); font-size: 11px; }
+.retry-settings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.retry-setting { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .background-note { padding: 9px 20px; border-top: 1px solid var(--line); background: #fafcfc; color: var(--muted); font-size: 11px; }
 .settings-message { padding: 8px 20px 12px; border-top: 1px solid var(--line); }
 .switch { position: relative; appearance: none; flex: 0 0 36px; height: 20px; margin: 0; border: 1px solid #78918e; border-radius: 14px; background: #d8e1e0; color: #fff; cursor: pointer; transition: background-color 120ms, border-color 120ms; }
@@ -187,6 +189,18 @@ h2 { font-size: 15px; font-weight: 700; }
 .about-content { display: grid; justify-items: start; gap: 14px; padding: 18px 20px; color: var(--muted); }
 .about-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .about-content .about-copyright { color: var(--muted); font-size: 12px; }
+.log-management { display: grid; gap: 10px; justify-items: start; width: 100%; min-width: 0; padding-top: 14px; border-top: 1px solid var(--line); }
+.log-management-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px; width: 100%; }
+.log-management-head h3 { color: var(--ink); font-size: 14px; }
+.log-management-head p { font-size: 12px; font-variant-numeric: tabular-nums; }
+.log-limit-form { display: grid; gap: 4px; }
+.log-limit-form label { color: var(--ink); font-size: 12px; font-weight: 650; }
+.log-limit-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.log-limit-controls input { width: 92px; min-height: 32px; padding: 4px 8px; border: 1px solid #ccd8d7; border-radius: 7px; color: var(--ink); background: #fcfdfd; }
+.log-limit-controls input:disabled { opacity: .65; }
+.log-limit-controls input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.log-clear-prompt { display: grid; gap: 8px; justify-items: start; padding: 9px 11px; border: 1px solid var(--line); border-radius: 7px; background: #fafcfc; font-size: 12px; }
+.log-clear-prompt .log-clear-confirm { color: var(--danger); }
 
 dialog { width: min(calc(100vw - 32px), 460px); max-height: calc(100vh - 32px); border: 1px solid var(--line); border-radius: 13px; background: #fff; color: var(--ink); padding: 0; box-shadow: 0 15px 55px #091d2344; }
 dialog::backdrop { background: #102a2a77; }

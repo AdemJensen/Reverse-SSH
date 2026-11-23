@@ -8,7 +8,7 @@ package desktop
 void run_window(const char *url, bool start_hidden);
 void alert_message(const char *message);
 void reopen_existing(void);
-enum { PickKeyFile, PickImportFile, PickExportFile };
+enum { PickKeyFile, PickImportFile, PickExportFile, PickLogsFile };
 char *choose_file(const char *start_dir, const char *suggested_name, int kind);
 */
 import "C"
@@ -43,6 +43,10 @@ func PickImportConfig(startDir string) (string, error) {
 
 func PickExportConfig(startDir, suggestedName string) (string, error) {
 	return chooseFile(startDir, suggestedName, C.PickExportFile)
+}
+
+func PickExportLogs(startDir, suggestedName string) (string, error) {
+	return chooseFile(startDir, suggestedName, C.PickLogsFile)
 }
 
 func chooseFile(startDir, suggestedName string, kind C.int) (string, error) {

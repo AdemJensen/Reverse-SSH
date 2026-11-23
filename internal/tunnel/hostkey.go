@@ -17,6 +17,14 @@ type hostKeyPrompt struct {
 	key     ssh.PublicKey
 }
 
+type hostKeyMismatch struct {
+	fingerprint string
+}
+
+func (e *hostKeyMismatch) Error() string {
+	return fmt.Sprintf("服务器指纹与已保存的记录不符（收到 %s），请向服务器管理员核对", e.fingerprint)
+}
+
 func (p *hostKeyPrompt) Error() string {
 	return "SSH 服务器尚未受信任"
 }
@@ -42,7 +50,7 @@ func hostKeyCallback(path string) (ssh.HostKeyCallback, error) {
 		}
 		fingerprint := ssh.FingerprintSHA256(key)
 		if len(keyError.Want) != 0 {
-			return fmt.Errorf("服务器指纹与已保存的记录不符（收到 %s），请向服务器管理员核对", fingerprint)
+			return &hostKeyMismatch{fingerprint: fingerprint}
 		}
 		return &hostKeyPrompt{
 			hostKey: HostKey{Host: host, Type: key.Type(), Fingerprint: fingerprint},

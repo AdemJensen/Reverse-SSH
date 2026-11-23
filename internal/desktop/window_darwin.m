@@ -9,7 +9,7 @@ static NSString *const ReopenNotification = @"com.reversessh.desktop.reopen";
 static NSWindow *window;
 static NSStatusItem *statusItem;
 static NSSavePanel *activePanel;
-enum { PickKeyFile, PickImportFile, PickExportFile };
+enum { PickKeyFile, PickImportFile, PickExportFile, PickLogsFile };
 
 @interface TunnelWindowDelegate : NSObject<NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate>
 @property (copy) NSURL *entryURL;
@@ -205,9 +205,9 @@ char *choose_file(const char *start_dir, const char *suggested_name, int kind) {
                 return;
             }
             NSSavePanel *panel;
-            if (kind == PickExportFile) {
+            if (kind == PickExportFile || kind == PickLogsFile) {
                 panel = [NSSavePanel savePanel];
-                panel.title = @"导出连接配置";
+                panel.title = kind == PickLogsFile ? @"导出诊断日志" : @"导出连接配置";
                 panel.prompt = @"保存";
                 panel.nameFieldStringValue = [NSString stringWithUTF8String:suggested_name];
             } else {
@@ -220,7 +220,7 @@ char *choose_file(const char *start_dir, const char *suggested_name, int kind) {
                 panel = open;
             }
             if (kind != PickKeyFile) {
-                panel.allowedContentTypes = @[UTTypeJSON];
+                panel.allowedContentTypes = @[kind == PickLogsFile ? UTTypeZIP : UTTypeJSON];
                 panel.allowsOtherFileTypes = NO;
             }
             NSString *dir = [NSString stringWithUTF8String:start_dir];

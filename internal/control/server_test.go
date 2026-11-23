@@ -103,7 +103,7 @@ func TestLocalInterfaceAndLoginSettings(t *testing.T) {
 	t.Cleanup(func() { listener.Close() })
 	p := profile{
 		Host: "127.0.0.1", SSHPort: listener.Addr().(*net.TCPAddr).Port, User: "fixture",
-		Auth: "password", Forwards: []forward{
+		Auth: "password", Reconnect: true, Forwards: []forward{
 			{RemoteBind: "127.0.0.1", RemotePort: 8080, LocalHost: "127.0.0.1", LocalPort: 3000},
 			{RemoteBind: "127.0.0.1", RemotePort: 8081, LocalHost: "127.0.0.1", LocalPort: 3001},
 		},
@@ -126,6 +126,7 @@ func TestLocalInterfaceAndLoginSettings(t *testing.T) {
 	// Exports include the draft and all forwards, while preserving the saved profile.
 	draft := p
 	draft.Host = "draft.example.com"
+	draft.RetryForever = true
 	draftJSON, err := json.Marshal(draft)
 	if err != nil {
 		t.Fatal(err)

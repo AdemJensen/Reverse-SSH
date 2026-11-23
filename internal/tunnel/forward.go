@@ -15,38 +15,57 @@ import (
 const connectionTimeout = 15 * time.Second
 
 func (m *Manager) connectAndForward(ctx context.Context, config Config, secrets Secrets) (connected, retryable bool, err error) {
+	sshAddress := address(config.SSHHost, config.SSHPort)
+	m.trace("connection_attempt", levelInfo, "正在尝试连接 SSH 服务器 "+sshAddress)
 	hostKeyCheck, err := hostKeyCallback(m.knownHostsPath)
 	if err != nil {
-		return false, false, err
+		return false, false, failure("host_key_read_failed", "无法读取 SSH 服务器指纹记录", err)
 	}
-	sshAddress := address(config.SSHHost, config.SSHPort)
 	dialer := net.Dialer{Timeout: connectionTimeout}
 	transport, err := dialer.DialContext(ctx, "tcp", sshAddress)
 	if err != nil {
-		return false, true, fmt.Errorf("无法连接 SSH 服务器：%w", err)
+		return false, true, failure("tcp_connect_failed", networkFailure("无法连接 SSH 服务器 "+sshAddress, err),
+			fmt.Errorf("无法连接 SSH 服务器：%w", err))
 	}
 	defer transport.Close()
 	stopClosing := context.AfterFunc(ctx, func() { transport.Close() })
 	defer stopClosing()
+	m.trace("tcp_connected", levelInfo, "已建立 TCP 连接 "+transport.RemoteAddr().String())
 
+	authName := authModeName(config.AuthMode)
 	auth, closeAuth, err := prepareAuth(ctx, config, secrets)
 	if err != nil {
-		return false, config.AuthMode == AuthAgent, err
+		return false, config.AuthMode == AuthAgent, failure("auth_prepare_failed", "无法准备 SSH 认证（"+authName+"）", err)
 	}
 	err = transport.SetDeadline(time.Now().Add(connectionTimeout))
 	if err != nil {
 		closeAuth()
-		return false, true, err
+		return false, true, failure("ssh_transport_failed", "无法设置 SSH 连接超时", err)
 	}
+	m.trace("ssh_handshake_started", levelInfo, "开始 SSH 握手（认证设置："+authName+"）")
 	sshConn, channels, requests, err := ssh.NewClientConn(transport, sshAddress, &ssh.ClientConfig{
-		User:            config.SSHUser,
-		Auth:            []ssh.AuthMethod{auth},
-		HostKeyCallback: hostKeyCheck,
+		User: config.SSHUser,
+		Auth: []ssh.AuthMethod{auth},
+		HostKeyCallback: func(host string, remote net.Addr, key ssh.PublicKey) error {
+			if err := hostKeyCheck(host, remote, key); err != nil {
+				return err
+			}
+			m.trace("host_key_verified", levelInfo, "SSH 服务器指纹校验通过（"+ssh.FingerprintSHA256(key)+"）")
+			return nil
+		},
 	})
 	closeAuth()
 	if err != nil {
-		return false, isTransportError(err), fmt.Errorf("SSH 握手或认证失败：%w", err)
+		kind := "ssh_handshake_failed"
+		message := networkFailure("SSH 握手或认证失败（认证设置："+authName+"）", err)
+		var mismatch *hostKeyMismatch
+		if errors.As(err, &mismatch) {
+			kind = "host_key_mismatch"
+			message = mismatch.Error()
+		}
+		return false, isTransportError(err), failure(kind, message, fmt.Errorf("SSH 握手或认证失败：%w", err))
 	}
+	m.trace("ssh_authenticated", levelInfo, "SSH 握手与认证完成")
 	client := ssh.NewClient(sshConn, channels, requests)
 	sessionContext, cancel := context.WithCancel(ctx)
 	var workers sync.WaitGroup
@@ -63,25 +82,45 @@ func (m *Manager) connectAndForward(ctx context.Context, config Config, secrets 
 	remoteAddresses := make([]string, 0, len(config.Forwards))
 	for _, forward := range config.Forwards {
 		remoteAddress := address(forward.RemoteHost, forward.RemotePort)
+		localAddress := address(forward.LocalHost, forward.LocalPort)
+		m.trace("remote_bind_requested", levelInfo, fmt.Sprintf("正在请求远端监听 %s，转发至本机 %s", remoteAddress, localAddress))
 		listener, err := client.Listen("tcp", remoteAddress)
 		if err != nil {
-			return false, isTransportError(err), fmt.Errorf("远端无法监听 %s，请检查服务器转发权限和端口占用情况：%w", remoteAddress, err)
+			transportFailed := isTransportError(err)
+			message := "SSH 服务器拒绝远端监听请求 " + remoteAddress + "，请检查转发权限和端口占用情况"
+			if transportFailed {
+				message = networkFailure("远端监听请求未完成 "+remoteAddress, err)
+			}
+			return false, config.RetryForever || transportFailed, failure("remote_bind_failed", message,
+				fmt.Errorf("远端无法监听 %s，请检查服务器转发权限和端口占用情况：%w", remoteAddress, err))
 		}
 		remoteAddresses = append(remoteAddresses, remoteAddress)
-		localAddress := address(forward.LocalHost, forward.LocalPort)
+		m.trace("remote_bound", levelInfo, "服务器已接受远端监听请求 "+remoteAddress)
 		workers.Go(func() {
 			err := acceptForward(sessionContext, listener, localAddress, ready, &workers)
-			acceptErrors <- fmt.Errorf("远端监听 %s 已中断：%w", remoteAddress, err)
+			message := "远端监听 " + remoteAddress + " 已中断"
+			acceptErrors <- failure("remote_listener_lost", networkFailure(message, err), fmt.Errorf("%s：%w", message, err))
 		})
 	}
 	if err = transport.SetDeadline(time.Time{}); err != nil {
-		return false, true, err
+		return false, true, failure("ssh_transport_failed", "无法清除 SSH 连接超时", err)
 	}
 
 	m.setConnected(sessionContext, client, remoteAddresses)
 	close(ready)
-	workers.Go(func() { keepAlive(sessionContext, transport, client) })
+	workers.Go(func() { m.keepAlive(sessionContext, ctx, transport, client) })
 	return true, true, <-acceptErrors
+}
+
+func authModeName(mode string) string {
+	switch mode {
+	case AuthPassword:
+		return "密码"
+	case AuthAgent:
+		return "SSH Agent"
+	default:
+		return "私钥文件"
+	}
 }
 
 func acceptForward(ctx context.Context, listener net.Listener, localAddress string, ready <-chan struct{}, workers *sync.WaitGroup) error {
@@ -106,7 +145,7 @@ func isTransportError(err error) bool {
 	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &networkError)
 }
 
-func keepAlive(ctx context.Context, transport net.Conn, client *ssh.Client) {
+func (m *Manager) keepAlive(ctx, runContext context.Context, transport net.Conn, client *ssh.Client) {
 	ticker := time.NewTicker(20 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -114,21 +153,26 @@ func keepAlive(ctx context.Context, transport net.Conn, client *ssh.Client) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := transport.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
-				transport.Close()
-				return
-			}
-			// Even a negative reply proves the SSH peer is alive.
-			if _, _, err := client.SendRequest("keepalive@openssh.com", true, nil); err != nil {
-				transport.Close()
-				return
-			}
-			if err := transport.SetDeadline(time.Time{}); err != nil {
+			if err := probeKeepAlive(transport, client); err != nil {
+				if runContext.Err() == nil {
+					m.trace("keepalive_failed", levelWarning, networkFailure("SSH 保活探测失败", err))
+				}
 				transport.Close()
 				return
 			}
 		}
 	}
+}
+
+func probeKeepAlive(transport net.Conn, client *ssh.Client) error {
+	if err := transport.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		return err
+	}
+	// Even a negative reply proves the SSH peer is alive.
+	if _, _, err := client.SendRequest("keepalive@openssh.com", true, nil); err != nil {
+		return err
+	}
+	return transport.SetDeadline(time.Time{})
 }
 
 func forwardConnection(ctx context.Context, remote net.Conn, localAddress string) {

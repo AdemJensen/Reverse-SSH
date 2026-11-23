@@ -27,6 +27,7 @@ type Config struct {
 	RemotePort     int
 	Forwards       []Forward
 	AutoReconnect  bool
+	RetryForever   bool // Retry rejected remote listen requests when AutoReconnect is enabled.
 }
 
 type Forward struct {
