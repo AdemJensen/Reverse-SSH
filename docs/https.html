@@ -71,7 +71,8 @@
 
         <section id="caddy">
           <h2>配置 Caddy</h2>
-          <p>把 Caddy 安装到 SSH 服务器上。官方 Debian 和 Ubuntu 软件包会安装并启动 <code>caddy</code> 服务。若 Nginx 或 Apache 已在 <code>80</code>、<code>443</code> 提供 HTTPS，可用现有服务器反代到 <code>127.0.0.1:18080</code>。<a class="text-link" href="https://caddyserver.com/docs/install#debian-ubuntu-raspbian">Caddy 官方安装步骤</a></p>
+          <p>把 Caddy 安装到 SSH 服务器上。官方 Debian 和 Ubuntu 软件包会安装并启动 <code>caddy</code> 服务。若 Nginx 或 Apache 已在宿主机上提供 HTTPS，可让现有服务反代到 <code>127.0.0.1:18080</code>。<a class="text-link" href="https://caddyserver.com/docs/install#debian-ubuntu-raspbian">Caddy 官方安装步骤</a></p>
+          <p>如果 Nginx 运行在单独的 Docker 网桥容器中，其回环地址属于容器自身。可以让隧道只监听宿主机的网桥地址，再将 Nginx 的上游指向该地址。<a class="text-link" href="ssh-tunnel-user.html#docker-bridge">Docker 网桥中的 Nginx 配置</a></p>
           <p>用 <code>sudoedit /etc/caddy/Caddyfile</code> 编辑现有配置，为你的真实域名新增站点块。如果该域名已有站点块，在现有块内调整反代设置。</p>
           <pre tabindex="0" aria-label="将 Caddy 反向代理指向 SSH 回环端口"><code>app.example.com {
     reverse_proxy 127.0.0.1:18080
